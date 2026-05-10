@@ -350,30 +350,32 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
     WARMUP = 50  # 지표 안정화 구간
 
     for i in range(WARMUP, n):
-        prev_i = i - 1   # 신호 판단 기준: 전일 (T+1 매매)
-
         close_today = trd_cl[i]
         open_today  = trd_op[i]
         high_today  = trd_hi[i]
         low_today   = trd_lo[i]
 
-        stop_hit  = False
-        take_hit  = False
+        # 다음봉 시가 (T+1 체결용) — 마지막 봉이면 당일 종가로 대체
+        next_open = trd_op[i + 1] if i + 1 < n else close_today
+
+        stop_hit   = False
+        take_hit   = False
         sold_today = False
         exec_price = None
-        signal    = "HOLD"
-        reason    = ""
-        detail    = ""
+        signal     = "HOLD"
+        reason     = ""
+        detail     = ""
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # A. 지표값 (전일 기준, 안전 인덱싱)
+        # A. 지표값 - 오프셋 기준 수정
+        # 오프셋 1 = 당일(i) 종가, 오프셋 2 = 전일, 오프셋 5 = 4일 전
+        # T+1 매매: 신호는 i봉 종가 기준, 실제 체결은 i+1봉(내일) 시가
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        # 종가 오프셋 적용
-        cl_b_idx = prev_i - p.offset_cl_buy
-        cl_s_idx = prev_i - p.offset_cl_sell
-        ma_b_idx = prev_i - p.offset_ma_buy
-        ma_s_idx = prev_i - p.offset_ma_sell
+        cl_b_idx = i - (p.offset_cl_buy - 1)
+        cl_s_idx = i - (p.offset_cl_sell - 1)
+        ma_b_idx = i - (p.offset_ma_buy - 1)
+        ma_s_idx = i - (p.offset_ma_sell - 1)
 
         if (cl_b_idx < 0 or cl_s_idx < 0 or ma_b_idx < 0 or ma_s_idx < 0):
             asset_curve[i] = cash + position * close_today
@@ -385,8 +387,8 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         ma_s  = ma_sell_arr[ma_s_idx]
 
         # 추세선
-        ts_idx = max(0, prev_i - p.offset_trend_short)
-        tl_idx = max(0, prev_i - p.offset_trend_long)
+        ts_idx = max(0, i - (p.offset_trend_short - 1))
+        tl_idx = max(0, i - (p.offset_trend_long - 1))
         trend_short = ma_ts_arr[ts_idx]
         trend_long  = ma_tl_arr[tl_idx]
         trend_up    = (trend_short >= trend_long) if (
@@ -471,7 +473,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         # ── RSI 필터 ──────────────────────────────────
         if p.use_rsi_filter and buy_cond:
-            rsi_val = rsi_arr[prev_i]
+            rsi_val = rsi_arr[i]
             if not np.isnan(rsi_val):
                 if rsi_val > p.rsi_max:
                     buy_cond = False
@@ -482,15 +484,15 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         # ── 모멘텀 필터 ───────────────────────────────
         if p.use_momentum_filter and buy_cond:
-            roc_val = roc_arr[prev_i]
+            roc_val = roc_arr[i]
             if not np.isnan(roc_val) and roc_val < p.momentum_threshold:
                 buy_cond = False
                 buy_msg += f" [모멘텀부족:{roc_val:.1f}%]"
 
         # ── 시장 필터 ─────────────────────────────────
         if p.use_market_filter and buy_cond and mkt_cl is not None and mkt_ma is not None:
-            if prev_i < len(mkt_cl) and not np.isnan(mkt_ma[prev_i]):
-                if mkt_cl[prev_i] < mkt_ma[prev_i]:
+            if i < len(mkt_cl) and not np.isnan(mkt_ma[i]):
+                if mkt_cl[i] < mkt_ma[i]:
                     buy_cond = False
                     buy_msg += f" [시장하락장]"
 
@@ -542,11 +544,9 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 sold_today  = True
 
         # ── strategy_behavior 처리 ────────────────────
-        # [버그 수정] 기존: 무조건 "매도 우선" → 이제 설정값 반영
         if not sold_today and position > 0:
-            # 매도 조건 체크
             if sell_cond and hold_days >= p.min_hold_days:
-                exec_price = close_today
+                exec_price = next_open   # T+1: 다음날 시가 체결
                 fill       = _fill_price(exec_price, "sell", p.fee_bps, p.slip_bps)
                 cash       = position * fill
                 trade_log.append(_make_log(
@@ -559,15 +559,14 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 hold_days   = 0
                 sold_today  = True
 
-                # strategy_behavior = "mutual": 매도 후 바로 재매수 가능
                 if p.strategy_behavior == "mutual" and buy_cond:
-                    exec_price = close_today
-                    fill       = _fill_price(exec_price, "buy", p.fee_bps, p.slip_bps)
-                    position   = cash / fill
+                    exec_price  = next_open
+                    fill        = _fill_price(exec_price, "buy", p.fee_bps, p.slip_bps)
+                    position    = cash / fill
                     entry_price = exec_price
-                    entry_bar  = i   # [버그 수정] 실제 매수 bar 저장
-                    hold_days  = 0
-                    cash       = 0.0
+                    entry_bar   = i
+                    hold_days   = 0
+                    cash        = 0.0
                     trade_log.append(_make_log(
                         base, i, close_today, "BUY", exec_price,
                         position * close_today, "전략매수(즉시재진입)", buy_msg, False, False
@@ -575,11 +574,11 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         elif not sold_today and position == 0:
             if buy_cond:
-                exec_price  = close_today
+                exec_price  = next_open   # T+1: 다음날 시가 체결
                 fill        = _fill_price(exec_price, "buy", p.fee_bps, p.slip_bps)
                 position    = cash / fill
                 entry_price = exec_price
-                entry_bar   = i   # [버그 수정] 실제 매수 bar 저장
+                entry_bar   = i
                 hold_days   = 0
                 cash        = 0.0
                 signal      = "BUY"
@@ -702,11 +701,7 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     mkt_cl  = data["mkt_close"]
     mkt_ma  = data["mkt_ma"]
     n       = len(sig_cl)
-    i       = n - 1  # 최신 봉
-
-    # 임시 BacktestResult-like 처리를 재활용하기 위해
-    # 마지막 2봉에 대해 engine 로직 일부를 인라인으로 실행
-    prev_i = i - 1
+    i       = n - 1  # 최신 봉 (오프셋 1 = 이 봉의 종가)
 
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
@@ -716,18 +711,18 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     bb_mid      = sig_ind["bb_mid"]
     bb_lo       = sig_ind["bb_lower"]
 
-    cl_b_idx = max(0, prev_i - p.offset_cl_buy)
-    cl_s_idx = max(0, prev_i - p.offset_cl_sell)
-    ma_b_idx = max(0, prev_i - p.offset_ma_buy)
-    ma_s_idx = max(0, prev_i - p.offset_ma_sell)
+    cl_b_idx = max(0, i - (p.offset_cl_buy - 1))
+    cl_s_idx = max(0, i - (p.offset_cl_sell - 1))
+    ma_b_idx = max(0, i - (p.offset_ma_buy - 1))
+    ma_s_idx = max(0, i - (p.offset_ma_sell - 1))
 
     cl_b = sig_cl[cl_b_idx]
     cl_s = sig_cl[cl_s_idx]
     ma_b = ma_buy_arr[ma_b_idx]
     ma_s = ma_sell_arr[ma_s_idx]
 
-    ts_val = ma_ts_arr[max(0, prev_i - p.offset_trend_short)]
-    tl_val = ma_tl_arr[max(0, prev_i - p.offset_trend_long)]
+    ts_val   = ma_ts_arr[max(0, i - (p.offset_trend_short - 1))]
+    tl_val   = ma_tl_arr[max(0, i - (p.offset_trend_long - 1))]
     trend_up = (ts_val >= tl_val) if not (np.isnan(ts_val) or np.isnan(tl_val)) else False
 
     # 매수 조건
