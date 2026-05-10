@@ -705,13 +705,25 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     mkt_cl  = data["mkt_close"]
     mkt_ma  = data["mkt_ma"]
     n       = len(sig_cl)
-    i       = n - 1  # 마지막 완성 봉
+    i       = n - 1  # 마지막 봉
 
-    # 오프셋 보정: 종료일 > 마지막 봉이면(주말/장 시작 전) +1
-    # → 오프셋 1이 항상 마지막 완성 봉 종가를 가리키도록
+    # ── 장중 미완성 데이터 처리 ──────────────────────────
+    # UTC 21:00(미장 마감) 전이면 당일 데이터는 미완성
+    # → 마지막 봉이 오늘(UTC)이면 한 봉 앞으로 당김
+    import datetime as _dt
+    now_utc   = _dt.datetime.utcnow()
+    today_utc = pd.Timestamp(now_utc.date())
+    last_bar  = data["base"]["Date"].iloc[-1]
+    if pd.to_datetime(last_bar).normalize() >= today_utc:
+        market_closed = now_utc.hour >= 21
+        if not market_closed:
+            i = max(0, i - 1)  # 미완성 당일 봉 제외
+
+    # 오프셋 보정: 종료일 > 마지막 봉이면(주말/장 전) +1
     end_dt      = data.get("end_date", data["base"]["Date"].iloc[-1])
-    last_bar_dt = data.get("last_bar_date", data["base"]["Date"].iloc[-1])
-    offset_adj  = 1 if pd.to_datetime(end_dt) > pd.to_datetime(last_bar_dt) else 0
+    last_bar_dt = data["base"]["Date"].iloc[i]
+    effective_last = data["base"]["Date"].iloc[i]
+    offset_adj  = 1 if pd.to_datetime(end_dt) > pd.to_datetime(effective_last) else 0
 
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
