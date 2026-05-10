@@ -73,28 +73,53 @@ def save_strategy(sheet_name: str, tab_name: str, strategy_name: str, params: di
     """
     전략 파라미터를 구글 시트에 저장.
     기존 동일 이름 전략은 덮어씀.
-
-    Returns: True(성공) / False(실패)
+    헤더는 항상 params 키 기준으로 구성 (컬럼 누락 방지).
     """
     ws = _get_worksheet(sheet_name, tab_name)
     if ws is None:
         return False
 
     try:
+        # 항상 params 기준으로 헤더 구성
+        param_keys = sorted(params.keys())
+        headers    = ["strategy_name"] + param_keys
+        new_row    = [strategy_name] + [str(params.get(k, "")) for k in param_keys]
+
         all_data = ws.get_all_values()
 
-        # 헤더 없으면 생성
         if not all_data:
-            headers = ["strategy_name"] + sorted(params.keys())
+            # 시트가 비어있으면 헤더 + 데이터 한 번에
             ws.append_row(headers)
-            all_data = [headers]
+            ws.append_row(new_row)
+            st.toast(f"✅ '{strategy_name}' 저장 완료", icon="✅")
+            return True
 
-        headers    = all_data[0]
-        new_row    = [strategy_name] + [str(params.get(h, "")) for h in headers[1:]]
+        existing_headers = all_data[0]
 
-        # 기존 행 찾기 → 업데이트 or 추가
-        name_col   = 1
-        found_row  = None
+        # 헤더가 다르면 시트 전체 재구성
+        if existing_headers != headers:
+            # 기존 데이터를 dict로 읽어둠
+            old_rows = {}
+            for row in all_data[1:]:
+                if row and row[0]:
+                    old_rows[row[0]] = {
+                        existing_headers[j]: row[j]
+                        for j in range(1, min(len(existing_headers), len(row)))
+                    }
+            # 새 전략 추가/덮어쓰기
+            old_rows[strategy_name] = params
+
+            # 시트 전체 재작성
+            ws.clear()
+            ws.append_row(headers)
+            for name, p in old_rows.items():
+                ws.append_row([name] + [str(p.get(k, "")) for k in param_keys])
+
+            st.toast(f"✅ '{strategy_name}' 저장 완료", icon="✅")
+            return True
+
+        # 헤더가 같으면 해당 행만 업데이트
+        found_row = None
         for i, row in enumerate(all_data[1:], start=2):
             if row and row[0] == strategy_name:
                 found_row = i
@@ -111,7 +136,7 @@ def save_strategy(sheet_name: str, tab_name: str, strategy_name: str, params: di
 
     except Exception as e:
         st.toast(f"❌ 저장 실패: {e}", icon="❌")
-        return False   # [버그 수정] 기존: raise e → 앱 전체가 에러 화면으로 전환되던 문제 수정
+        return False
 
 
 def load_strategies(sheet_name: str, tab_name: str) -> dict:
