@@ -802,59 +802,37 @@ with tab3:
 # Tab 4: 전략 최적화
 # ══════════════════════════════════════════════════════════
 with tab4:
-    st.header("⚡ 전략 최적화 (Optuna 베이지안)")
-    st.caption("Train/Test 분리 검증으로 과적합을 방지하며 최적 파라미터를 탐색합니다.")
-
-    # ── 최적화 모드 선택 ──────────────────────────────────
-    opt_mode = st.radio(
-        "최적화 모드",
-        ["🎯 현재 설정 기반 최적화", "🤖 AI 풀옵션 자동 탐색"],
-        horizontal=True,
-        key="opt_mode",
-    )
-    st.caption(
-        "**현재 설정 기반:** 사이드바 설정을 기준으로 수치 파라미터만 최적화  \n"
-        "**AI 풀옵션:** 매수/매도 조건, 필터, 손절 등 모든 옵션을 AI가 자동 탐색"
-    )
+    st.header("⚡ 전략 최적화 (Optuna 베이지안 AI 풀옵션)")
+    st.caption("Train/Test 분리 검증으로 과적합을 방지하며 최적 파라미터를 자동 탐색합니다.")
 
     st.divider()
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_trials     = st.slider("탐색 횟수 (많을수록 정확)", 30, 500, 100, step=10, key="opt_n_trials")
-        opt_target   = st.selectbox("최적화 목표", [
+        n_trials   = st.slider("탐색 횟수 (많을수록 정확)", 30, 500, 100, step=10, key="opt_n_trials")
+        opt_target = st.selectbox("최적화 목표", [
             "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
         ], key="opt_target")
     with col2:
-        split_ratio  = st.slider("Train 비율 (앞부분)", 0.3, 0.8, 0.6, 0.05, key="opt_split")
-        min_trades   = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
+        split_ratio = st.slider("Train 비율 (앞부분)", 0.3, 0.8, 0.6, 0.05, key="opt_split")
+        min_trades  = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
     with col3:
         max_mdd      = st.slider("최대 허용 MDD (%) (0=제한없음)", 0, 100, 0, key="opt_max_mdd")
         min_test_ret = st.slider("Test 구간 최소 수익률 (%)", -100, 100, -50, key="opt_min_test")
 
-    # AI 풀옵션 모드 추가 설정
-    if opt_mode == "🤖 AI 풀옵션 자동 탐색":
-        st.divider()
-        st.markdown("##### 🤖 AI 탐색 범위 설정")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            ai_use_bb    = st.toggle("볼린저 밴드 포함", value=True,  key="ai_use_bb")
-            ai_use_macd  = st.toggle("MACD 필터 포함",   value=True,  key="ai_use_macd")
-        with col2:
-            ai_use_rsi   = st.toggle("RSI 필터 포함",    value=True,  key="ai_use_rsi")
-            ai_use_trend = st.toggle("추세 필터 포함",    value=True,  key="ai_use_trend")
-        with col3:
-            ai_use_atr   = st.toggle("ATR 손절 포함",    value=True,  key="ai_use_atr")
-            ai_use_mkt   = st.toggle("시장 필터 포함",    value=False, key="ai_use_mkt")
+    st.divider()
+    st.markdown("##### 🤖 AI 탐색 범위 설정")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        ai_use_bb    = st.toggle("볼린저 밴드 포함", value=True,  key="ai_use_bb")
+        ai_use_macd  = st.toggle("MACD 필터 포함",   value=True,  key="ai_use_macd")
+    with col2:
+        ai_use_rsi   = st.toggle("RSI 필터 포함",    value=True,  key="ai_use_rsi")
+        ai_use_trend = st.toggle("추세 필터 포함",    value=True,  key="ai_use_trend")
+    with col3:
+        ai_use_atr   = st.toggle("ATR 손절 포함",    value=True,  key="ai_use_atr")
+        ai_use_mkt   = st.toggle("시장 필터 포함",    value=False, key="ai_use_mkt")
 
-        ai_ma_choices = st.multiselect(
-            "탐색할 이평선 기간",
-            [5, 10, 20, 50, 60, 120, 200],
-            default=[5, 10, 20, 50, 60, 120],
-            key="ai_ma_choices",
-        )
-
-    # 익절 탐색 끄기 (기존 disable_tp_checkbox 기능 그대로)
     st.divider()
     disable_tp = st.checkbox(
         "🚫 익절(Take Profit) 탐색 끄기 (0%로 고정, 탐색 속도 향상)",
@@ -871,20 +849,16 @@ with tab4:
             prog_bar.progress(int(cur / total * 100))
             status_ph.caption(f"⏳ Trial {cur}/{total} 완료...")
 
-        # ── 탐색 공간 구성 ────────────────────────────────
-        if opt_mode == "🤖 AI 풀옵션 자동 탐색":
-            ma_list = ai_ma_choices if ai_ma_choices else [5, 10, 20, 50, 60, 120]
-            ss = make_full_search_space(
-                ma_choices=ma_list,
-                use_trend=ai_use_trend,
-                use_atr=ai_use_atr,
-            )
-            p_base.use_bollinger      = ai_use_bb
-            p_base.use_macd          = ai_use_macd
-            p_base.use_rsi_filter    = ai_use_rsi
-            p_base.use_market_filter = ai_use_mkt
-        else:
-            ss = make_simple_search_space(p_base)
+        # 탐색 공간: 항상 AI 풀옵션 (MA = [1]+range(5,121,5))
+        ss = make_full_search_space(
+            ma_choices=None,           # None → _MA_FULL 자동 사용
+            use_trend=ai_use_trend,
+            use_atr=ai_use_atr,
+        )
+        p_base.use_bollinger      = ai_use_bb
+        p_base.use_macd           = ai_use_macd
+        p_base.use_rsi_filter     = ai_use_rsi
+        p_base.use_market_filter  = ai_use_mkt
 
         with st.spinner("최적화 실행 중... (탐색 횟수가 많을수록 시간이 걸립니다)"):
             opt_df, opt_study = run_optimization(
@@ -908,9 +882,8 @@ with tab4:
 
         prog_bar.empty()
         status_ph.empty()
-        set_state("opt_result", opt_df)
-        set_state("opt_study",  opt_study)
-        set_state("opt_mode_used", opt_mode)
+        set_state("opt_result",      opt_df)
+        set_state("opt_study",       opt_study)
         set_state("opt_target_used", opt_target)
 
     # ── 결과 표시 ─────────────────────────────────────────
@@ -919,32 +892,24 @@ with tab4:
     is_multi     = (opt_target_u == "다중 목적 (수익률↑ + MDD↓)")
 
     if opt_df is not None and not opt_df.empty:
-        mode_used = get_state("opt_mode_used", "")
         label = "Pareto Front 후보" if is_multi else "유효 결과"
-        st.success(f"✅ {len(opt_df)}개 {label} 발견 ({mode_used})")
-
+        st.success(f"✅ {len(opt_df)}개 {label} 발견")
         if is_multi:
-            st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. AI가 찾아낸 **공격형 ~ 안정형** 포트폴리오 중 마음에 드는 것을 선택하세요.")
+            st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. 공격형 ~ 안정형 중 마음에 드는 것을 선택하세요.")
 
-        # 결과 테이블 — 성과 지표 / 파라미터 탭으로 분리
-        res_cols = ["Full_수익률(%)", "Full_MDD(%)", "Full_승률(%)", "Full_PF",
-                    "Full_매매횟수", "Train_수익률(%)", "Test_수익률(%)", "Test_MDD(%)"]
+        res_cols   = ["Full_수익률(%)", "Full_MDD(%)", "Full_승률(%)", "Full_PF",
+                      "Full_매매횟수", "Train_수익률(%)", "Test_수익률(%)", "Test_MDD(%)"]
         param_cols = [c for c in opt_df.columns if c not in res_cols]
 
         rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
         with rtab1:
-            st.dataframe(
-                opt_df[res_cols].head(20),
-                use_container_width=True, hide_index=True,
-            )
+            st.dataframe(opt_df[res_cols].head(20), use_container_width=True, hide_index=True)
         with rtab2:
             st.dataframe(opt_df[param_cols].head(20), use_container_width=True, hide_index=True)
 
         st.divider()
-
-        # ── 최적 파라미터 적용 (버그 수정: 위젯 키에 직접 값 주입) ──
         st.subheader("🏆 최적 파라미터 사이드바 적용")
-        st.caption("적용 후 페이지가 새로고침되며 사이드바 값이 변경됩니다. Tab 3에서 바로 백테스트 실행하세요.")
+        st.caption("적용 버튼을 누르면 사이드바 값이 변경됩니다. 이후 Tab 3에서 백테스트를 실행하세요.")
 
         top_idx = st.selectbox(
             "적용할 순위 선택",
@@ -958,50 +923,66 @@ with tab4:
             key="opt_apply_idx",
         )
 
-        # 선택된 파라미터 미리보기
-        selected_row = opt_df.iloc[top_idx]
         with st.expander("📋 선택된 파라미터 미리보기"):
-            preview_cols = st.columns(3)
+            selected_row = opt_df.iloc[top_idx]
             preview_items = [(k, v) for k, v in selected_row.items() if k in param_cols]
-            for idx_p, (k, v) in enumerate(preview_items):
-                preview_cols[idx_p % 3].metric(k, v)
+            pc = st.columns(3)
+            for i, (k, v) in enumerate(preview_items):
+                pc[i % 3].metric(k, v)
 
         if st.button("✅ 사이드바에 적용하기", type="primary", use_container_width=True, key="opt_apply_btn"):
             row = opt_df.iloc[top_idx]
 
-            def _safe_int(v, d):
+            def _si(v, d):
                 try: return int(float(v))
                 except: return d
-            def _safe_float(v, d):
+            def _sf(v, d):
                 try: return float(v)
                 except: return d
-            def _safe_bool(v):
+            def _sb(v, d=False):
                 return str(v).lower() in ["true", "1", "t"]
 
-            # [핵심] 위젯 키가 아닌 _ 접두사 키에 저장 → 다음 렌더링 때 위젯 index로 반영
-            st.session_state["_ma_buy"]       = _safe_int(row.get("ma_buy"), 50)
-            st.session_state["_ma_sell"]      = _safe_int(row.get("ma_sell"), 10)
-            st.session_state["_off_cl_buy"]   = _safe_int(row.get("offset_cl_buy"), 1)
-            st.session_state["_off_ma_buy"]   = _safe_int(row.get("offset_ma_buy"), 1)
-            st.session_state["_off_cl_sell"]  = _safe_int(row.get("offset_cl_sell"), 1)
-            st.session_state["_off_ma_sell"]  = _safe_int(row.get("offset_ma_sell"), 1)
-            st.session_state["_buy_op"]       = str(row.get("buy_operator", ">"))
-            st.session_state["_sell_op"]      = str(row.get("sell_operator", "<"))
-            st.session_state["_use_trend_buy"] = _safe_bool(row.get("use_trend_buy", True))
-            st.session_state["_use_trend_sell"]= _safe_bool(row.get("use_trend_sell", False))
-            st.session_state["_ma_ts"]        = _safe_int(row.get("ma_trend_short"), 20)
-            st.session_state["_ma_tl"]        = _safe_int(row.get("ma_trend_long"), 50)
-            st.session_state["_stop_pct"]     = _safe_int(row.get("stop_loss_pct"), 0)
-            st.session_state["_tp_pct"]       = _safe_int(row.get("take_profit_pct"), 0)
-            st.session_state["_use_atr_stop"] = _safe_bool(row.get("use_atr_stop", False))
-            st.session_state["_atr_mult"]     = _safe_float(row.get("atr_multiplier"), 2.0)
+            # _ 키에 새 값 저장
+            st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
+            st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
+            st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
+            st.session_state["_off_ma_buy"]    = _si(row.get("offset_ma_buy"), 1)
+            st.session_state["_off_cl_sell"]   = _si(row.get("offset_cl_sell"), 1)
+            st.session_state["_off_ma_sell"]   = _si(row.get("offset_ma_sell"), 1)
+            st.session_state["_buy_op"]        = str(row.get("buy_operator", ">"))
+            st.session_state["_sell_op"]       = str(row.get("sell_operator", "<"))
+            st.session_state["_use_trend_buy"] = _sb(row.get("use_trend_buy"))
+            st.session_state["_use_trend_sell"]= _sb(row.get("use_trend_sell"))
+            st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
+            st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
+            st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
+            st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
+            st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
+            st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
 
-            st.success("✅ 사이드바 적용 완료! 좌측 사이드바 값이 변경되었습니다.")
-            st.info("👉 Tab 3 (백테스트) 탭으로 이동해서 ▶️ 백테스트 실행을 눌러주세요.")
+            # number_input은 key가 있으면 session_state[key]가 우선 → 위젯 키도 같이 덮어써야 반영됨
+            st.session_state["ma_buy"]        = st.session_state["_ma_buy"]
+            st.session_state["ma_sell"]       = st.session_state["_ma_sell"]
+            st.session_state["off_cl_buy"]    = st.session_state["_off_cl_buy"]
+            st.session_state["off_ma_buy"]    = st.session_state["_off_ma_buy"]
+            st.session_state["off_cl_sell"]   = st.session_state["_off_cl_sell"]
+            st.session_state["off_ma_sell"]   = st.session_state["_off_ma_sell"]
+            st.session_state["buy_op"]        = st.session_state["_buy_op"]
+            st.session_state["sell_op"]       = st.session_state["_sell_op"]
+            st.session_state["use_trend_buy"] = st.session_state["_use_trend_buy"]
+            st.session_state["use_trend_sell"]= st.session_state["_use_trend_sell"]
+            st.session_state["ma_ts"]         = st.session_state["_ma_ts"]
+            st.session_state["ma_tl"]         = st.session_state["_ma_tl"]
+            st.session_state["stop_pct"]      = st.session_state["_stop_pct"]
+            st.session_state["tp_pct"]        = st.session_state["_tp_pct"]
+            st.session_state["use_atr_stop"]  = st.session_state["_use_atr_stop"]
+            st.session_state["atr_mult"]      = st.session_state["_atr_mult"]
+
+            st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
             st.rerun()
 
     elif opt_df is not None:
-        st.warning("유효한 최적화 결과가 없습니다. 아래를 확인해보세요.")
+        st.warning("유효한 최적화 결과가 없습니다.")
         st.markdown("""
         - 탐색 횟수를 늘려보세요 (100 → 200)
         - 최소 매매 횟수를 줄여보세요 (5 → 2)
