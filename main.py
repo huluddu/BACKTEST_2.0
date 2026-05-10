@@ -111,56 +111,51 @@ with st.sidebar:
     # ── 전략 파라미터 ──────────────────────────────────
     st.subheader("⚙️ 전략 파라미터")
 
-    def _idx(lst, val):
-        try: return lst.index(val)
-        except (ValueError, TypeError): return 0
-
-    _MA_LIST  = [5, 10, 20, 50, 60, 120, 200]
-    _OFF_LIST = [1, 5, 10, 20]
-    _MA_TS    = [5, 10, 20, 50]
-    _MA_TL    = [20, 50, 60, 120, 200]
-
     with st.expander("📈 매수 조건", expanded=True):
-        ma_buy = st.selectbox(
-            "매수 이평선", _MA_LIST,
-            index=_idx(_MA_LIST, st.session_state["_ma_buy"]), key="ma_buy")
+        ma_buy = st.number_input(
+            "매수 이평선 (직접 입력)", min_value=1, max_value=500,
+            value=int(st.session_state["_ma_buy"]), step=1, key="ma_buy")
         buy_operator = st.selectbox(
             "매수 연산자", [">", "<"],
-            index=_idx([">", "<"], st.session_state["_buy_op"]), key="buy_op")
+            index=[">","<"].index(st.session_state["_buy_op"])
+                  if st.session_state["_buy_op"] in [">","<"] else 0,
+            key="buy_op")
         col1, col2 = st.columns(2)
         with col1:
-            offset_cl_buy = st.selectbox(
-                "종가 오프셋(매수)", _OFF_LIST,
-                index=_idx(_OFF_LIST, st.session_state["_off_cl_buy"]), key="off_cl_buy")
+            offset_cl_buy = st.number_input(
+                "종가 오프셋(매수)", min_value=1, max_value=60,
+                value=int(st.session_state["_off_cl_buy"]), step=1, key="off_cl_buy")
         with col2:
-            offset_ma_buy = st.selectbox(
-                "MA 오프셋(매수)", _OFF_LIST,
-                index=_idx(_OFF_LIST, st.session_state["_off_ma_buy"]), key="off_ma_buy")
-        st.session_state["_ma_buy"]     = ma_buy
+            offset_ma_buy = st.number_input(
+                "MA 오프셋(매수)", min_value=1, max_value=60,
+                value=int(st.session_state["_off_ma_buy"]), step=1, key="off_ma_buy")
+        st.session_state["_ma_buy"]     = int(ma_buy)
         st.session_state["_buy_op"]     = buy_operator
-        st.session_state["_off_cl_buy"] = offset_cl_buy
-        st.session_state["_off_ma_buy"] = offset_ma_buy
+        st.session_state["_off_cl_buy"] = int(offset_cl_buy)
+        st.session_state["_off_ma_buy"] = int(offset_ma_buy)
 
     with st.expander("📉 매도 조건"):
         sell_operator = st.selectbox(
             "매도 연산자", ["<", ">", "OFF"],
-            index=_idx(["<", ">", "OFF"], st.session_state["_sell_op"]), key="sell_op")
-        ma_sell = st.selectbox(
-            "매도 이평선", _MA_LIST,
-            index=_idx(_MA_LIST, st.session_state["_ma_sell"]), key="ma_sell")
+            index=["<",">","OFF"].index(st.session_state["_sell_op"])
+                  if st.session_state["_sell_op"] in ["<",">","OFF"] else 0,
+            key="sell_op")
+        ma_sell = st.number_input(
+            "매도 이평선 (직접 입력)", min_value=1, max_value=500,
+            value=int(st.session_state["_ma_sell"]), step=1, key="ma_sell")
         col1, col2 = st.columns(2)
         with col1:
-            offset_cl_sell = st.selectbox(
-                "종가 오프셋(매도)", _OFF_LIST,
-                index=_idx(_OFF_LIST, st.session_state["_off_cl_sell"]), key="off_cl_sell")
+            offset_cl_sell = st.number_input(
+                "종가 오프셋(매도)", min_value=1, max_value=60,
+                value=int(st.session_state["_off_cl_sell"]), step=1, key="off_cl_sell")
         with col2:
-            offset_ma_sell = st.selectbox(
-                "MA 오프셋(매도)", _OFF_LIST,
-                index=_idx(_OFF_LIST, st.session_state["_off_ma_sell"]), key="off_ma_sell")
-        st.session_state["_ma_sell"]     = ma_sell
+            offset_ma_sell = st.number_input(
+                "MA 오프셋(매도)", min_value=1, max_value=60,
+                value=int(st.session_state["_off_ma_sell"]), step=1, key="off_ma_sell")
+        st.session_state["_ma_sell"]     = int(ma_sell)
         st.session_state["_sell_op"]     = sell_operator
-        st.session_state["_off_cl_sell"] = offset_cl_sell
-        st.session_state["_off_ma_sell"] = offset_ma_sell
+        st.session_state["_off_cl_sell"] = int(offset_cl_sell)
+        st.session_state["_off_ma_sell"] = int(offset_ma_sell)
 
     with st.expander("🔀 추세 필터"):
         use_trend_buy = st.toggle(
@@ -171,17 +166,19 @@ with st.sidebar:
             value=bool(st.session_state["_use_trend_sell"]), key="use_trend_sell")
         col1, col2 = st.columns(2)
         with col1:
-            ma_ts  = st.selectbox("단기 추세선", _MA_TS,
-                                  index=_idx(_MA_TS, st.session_state["_ma_ts"]), key="ma_ts")
-            off_ts = st.selectbox("단기 오프셋", _OFF_LIST, key="off_ts")
+            ma_ts  = st.number_input(
+                "단기 추세선", min_value=1, max_value=500,
+                value=int(st.session_state["_ma_ts"]), step=1, key="ma_ts")
+            off_ts = st.number_input("단기 오프셋", min_value=1, max_value=60, value=1, step=1, key="off_ts")
         with col2:
-            ma_tl  = st.selectbox("장기 추세선", _MA_TL,
-                                  index=_idx(_MA_TL, st.session_state["_ma_tl"]), key="ma_tl")
-            off_tl = st.selectbox("장기 오프셋", _OFF_LIST, key="off_tl")
+            ma_tl  = st.number_input(
+                "장기 추세선", min_value=1, max_value=500,
+                value=int(st.session_state["_ma_tl"]), step=1, key="ma_tl")
+            off_tl = st.number_input("장기 오프셋", min_value=1, max_value=60, value=1, step=1, key="off_tl")
         st.session_state["_use_trend_buy"]  = use_trend_buy
         st.session_state["_use_trend_sell"] = use_trend_sell
-        st.session_state["_ma_ts"]          = ma_ts
-        st.session_state["_ma_tl"]          = ma_tl
+        st.session_state["_ma_ts"]          = int(ma_ts)
+        st.session_state["_ma_tl"]          = int(ma_tl)
 
     with st.expander("🎯 볼린저 밴드"):
         use_bb = st.toggle("볼린저 밴드 모드", value=False, key="use_bb")
