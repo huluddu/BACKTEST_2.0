@@ -97,24 +97,11 @@ def _standardize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _clip_dates(df: pd.DataFrame, start, end) -> pd.DataFrame:
-    """시작/종료일 기준으로 데이터를 자름. 장중 미완성 당일 데이터 자동 제거."""
+    """시작/종료일 기준으로 데이터를 자름."""
     start_dt = pd.to_datetime(start)
     end_dt   = pd.to_datetime(end)
     df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
-
-    # 종료일 기준 clip
-    df = df[(df["Date"] >= start_dt) & (df["Date"] <= end_dt)]
-
-    # 장중 미완성 데이터 제거:
-    # 미국 동부 16:00 마감 = UTC 21:00 = 한국 06:00(다음날)
-    # 현재 UTC 시간이 21:00 미만이면 오늘(UTC 기준) 데이터는 미완성
-    now_utc = datetime.datetime.utcnow()
-    market_close_utc = now_utc.replace(hour=21, minute=0, second=0, microsecond=0)
-    if now_utc < market_close_utc:
-        today_utc = pd.Timestamp(now_utc.date())
-        df = df[df["Date"] < today_utc]
-
-    return df.reset_index(drop=True)
+    return df[(df["Date"] >= start_dt) & (df["Date"] <= end_dt)].reset_index(drop=True)
 
 
 # ══════════════════════════════════════════════════════════
