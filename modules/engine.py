@@ -239,17 +239,21 @@ def prepare_data(
     else:
         mkt_ma = None
 
+    last_bar_date = base["Date"].iloc[-1]
+
     return {
-        "base":       base,
-        "sig_close":  sig_close,
-        "trd_close":  trd_close,
-        "trd_open":   base["Open_trd"].to_numpy(dtype=float),
-        "trd_high":   trd_high,
-        "trd_low":    trd_low,
-        "trd_atr":    trd_atr,
-        "sig_ind":    sig_ind,
-        "mkt_close":  base["Close_mkt"].to_numpy(dtype=float) if "Close_mkt" in base.columns else None,
-        "mkt_ma":     mkt_ma,
+        "base":          base,
+        "sig_close":     sig_close,
+        "trd_close":     trd_close,
+        "trd_open":      base["Open_trd"].to_numpy(dtype=float),
+        "trd_high":      trd_high,
+        "trd_low":       trd_low,
+        "trd_atr":       trd_atr,
+        "sig_ind":       sig_ind,
+        "mkt_close":     base["Close_mkt"].to_numpy(dtype=float) if "Close_mkt" in base.columns else None,
+        "mkt_ma":        mkt_ma,
+        "end_date":      pd.to_datetime(end_date).normalize(),
+        "last_bar_date": last_bar_date,
     }
 
 
@@ -324,6 +328,13 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
     if n < 60:
         return BacktestResult(error="데이터 부족 (최소 60봉 필요)")
 
+    # ── 오프셋 보정값 계산 ────────────────────────────────
+    # 종료일이 마지막 봉보다 이후면(주말/장 시작 전) 오프셋을 1 감소
+    # → 오프셋 1이 마지막 완성 봉 종가를 가리키도록
+    end_dt      = data.get("end_date", data["base"]["Date"].iloc[-1])
+    last_bar_dt = data.get("last_bar_date", data["base"]["Date"].iloc[-1])
+    offset_adj  = 1 if pd.to_datetime(end_dt) > pd.to_datetime(last_bar_dt) else 0
+
     # ── 지표 배열 미리 꺼내기 (루프 내 dict 접근 최소화) ──
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
@@ -368,15 +379,15 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # A. 지표값
-        # 오프셋 1 = 마지막 완성 봉(i) 종가
-        # 오프셋 2 = i-1 종가
-        # 매매 실행: i+1봉(다음 거래일) 시가
+        # 오프셋 1 = i-1 (전 거래일 종가)
+        # 오프셋 2 = i-2 (2거래일 전 종가)
+        # 체결: next_open (i+1봉 시가) → 미래 참조 없음
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        cl_b_idx = i - (p.offset_cl_buy - 1)
-        cl_s_idx = i - (p.offset_cl_sell - 1)
-        ma_b_idx = i - (p.offset_ma_buy - 1)
-        ma_s_idx = i - (p.offset_ma_sell - 1)
+        cl_b_idx = i - p.offset_cl_buy + offset_adj
+        cl_s_idx = i - p.offset_cl_sell + offset_adj
+        ma_b_idx = i - p.offset_ma_buy + offset_adj
+        ma_s_idx = i - p.offset_ma_sell + offset_adj
 
         if (cl_b_idx < 0 or cl_s_idx < 0 or ma_b_idx < 0 or ma_s_idx < 0):
             asset_curve[i] = cash + position * close_today
@@ -388,8 +399,8 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         ma_s  = ma_sell_arr[ma_s_idx]
 
         # 추세선
-        ts_idx = max(0, i - (p.offset_trend_short - 1))
-        tl_idx = max(0, i - (p.offset_trend_long - 1))
+        ts_idx = max(0, i - p.offset_trend_short + offset_adj)
+        tl_idx = max(0, i - p.offset_trend_long + offset_adj)
         trend_short = ma_ts_arr[ts_idx]
         trend_long  = ma_tl_arr[tl_idx]
         trend_up    = (trend_short >= trend_long) if (
@@ -703,7 +714,12 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     mkt_ma  = data["mkt_ma"]
     n       = len(sig_cl)
     i       = n - 1  # 마지막 완성 봉
-    # 오프셋 1 → i-1 종가 (전 거래일), 오프셋 2 → i-2 종가
+
+    # 오프셋 보정: 종료일 > 마지막 봉이면(주말/장 시작 전) +1
+    # → 오프셋 1이 항상 마지막 완성 봉 종가를 가리키도록
+    end_dt      = data.get("end_date", data["base"]["Date"].iloc[-1])
+    last_bar_dt = data.get("last_bar_date", data["base"]["Date"].iloc[-1])
+    offset_adj  = 1 if pd.to_datetime(end_dt) > pd.to_datetime(last_bar_dt) else 0
 
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
@@ -713,18 +729,18 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     bb_mid      = sig_ind["bb_mid"]
     bb_lo       = sig_ind["bb_lower"]
 
-    cl_b_idx = max(0, i - (p.offset_cl_buy - 1))
-    cl_s_idx = max(0, i - (p.offset_cl_sell - 1))
-    ma_b_idx = max(0, i - (p.offset_ma_buy - 1))
-    ma_s_idx = max(0, i - (p.offset_ma_sell - 1))
+    cl_b_idx = max(0, i - p.offset_cl_buy + offset_adj)
+    cl_s_idx = max(0, i - p.offset_cl_sell + offset_adj)
+    ma_b_idx = max(0, i - p.offset_ma_buy + offset_adj)
+    ma_s_idx = max(0, i - p.offset_ma_sell + offset_adj)
 
     cl_b = sig_cl[cl_b_idx]
     cl_s = sig_cl[cl_s_idx]
     ma_b = ma_buy_arr[ma_b_idx]
     ma_s = ma_sell_arr[ma_s_idx]
 
-    ts_val   = ma_ts_arr[max(0, i - (p.offset_trend_short - 1))]
-    tl_val   = ma_tl_arr[max(0, i - (p.offset_trend_long - 1))]
+    ts_val   = ma_ts_arr[max(0, i - p.offset_trend_short + offset_adj)]
+    tl_val   = ma_tl_arr[max(0, i - p.offset_trend_long + offset_adj)]
     trend_up = (ts_val >= tl_val) if not (np.isnan(ts_val) or np.isnan(tl_val)) else False
 
     # 기준일: 사이드바 종료일 (주말/공휴일이어도 그대로 표시)
