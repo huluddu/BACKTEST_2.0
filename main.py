@@ -692,7 +692,11 @@ with tab1:
             else:
                 st.info(f"## {status}")
 
-            st.caption(f"기준일: {sig['ref_date']}  |  추세: {'📈 상승추세' if sig['trend_up'] else '📉 하락추세'}")
+            st.caption(
+                f"📅 기준일(종료일): **{end_date}**  |  "
+                f"신호 계산 종가: **{sig['sig_date']}** (오프셋{p.offset_cl_buy})  |  "
+                f"추세: {'📈 상승추세' if sig['trend_up'] else '📉 하락추세'}"
+            )
 
             col1, col2 = st.columns(2)
             with col1:
