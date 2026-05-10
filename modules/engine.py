@@ -368,9 +368,9 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # A. 지표값
-        # 오프셋 1 = 마지막 완성 봉(i) 종가  → 5/8(금)
-        # 오프셋 2 = i-1 종가                → 5/7(목)
-        # 매매 실행: i+1봉(다음 거래일) 시가  → 5/11(월)
+        # 오프셋 1 = 마지막 완성 봉(i) 종가
+        # 오프셋 2 = i-1 종가
+        # 매매 실행: i+1봉(다음 거래일) 시가
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         cl_b_idx = i - (p.offset_cl_buy - 1)
@@ -702,8 +702,8 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     mkt_cl  = data["mkt_close"]
     mkt_ma  = data["mkt_ma"]
     n       = len(sig_cl)
-    i       = n - 1  # 마지막 완성 봉 (기준일의 마지막 거래일)
-    # 오프셋 1 = i봉(5/8 금) 종가, 오프셋 2 = i-1봉(5/7 목) 종가
+    i       = n - 1  # 마지막 완성 봉
+    # 오프셋 1 → i-1 종가 (전 거래일), 오프셋 2 → i-2 종가
 
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
@@ -726,6 +726,10 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     ts_val   = ma_ts_arr[max(0, i - (p.offset_trend_short - 1))]
     tl_val   = ma_tl_arr[max(0, i - (p.offset_trend_long - 1))]
     trend_up = (ts_val >= tl_val) if not (np.isnan(ts_val) or np.isnan(tl_val)) else False
+
+    # 기준일: 사이드바 종료일 (주말/공휴일이어도 그대로 표시)
+    # 마지막 봉 날짜는 별도로 표시
+    last_bar_date = data["base"]["Date"].iloc[-1].strftime("%Y-%m-%d")
 
     # 매수 조건
     if p.use_bollinger:
@@ -783,14 +787,16 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     else:
         status = "⏸ 관망"
 
-    ref_date = data["base"]["Date"].iloc[-1].strftime("%Y-%m-%d")
+    last_bar_date = data["base"]["Date"].iloc[-1].strftime("%Y-%m-%d")
+    sig_date      = data["base"]["Date"].iloc[cl_b_idx].strftime("%Y-%m-%d")
 
     return {
-        "status":   status,
-        "buy_ok":   buy_ok,
-        "sell_ok":  sell_ok,
-        "buy_msg":  buy_msg,
-        "sell_msg": sell_msg,
-        "ref_date": ref_date,
-        "trend_up": trend_up,
+        "status":        status,
+        "buy_ok":        buy_ok,
+        "sell_ok":       sell_ok,
+        "buy_msg":       buy_msg,
+        "sell_msg":      sell_msg,
+        "last_bar_date": last_bar_date,  # 마지막 거래일 (i봉)
+        "sig_date":      sig_date,       # 신호 계산에 사용된 종가 날짜 (i - offset)
+        "trend_up":      trend_up,
     }
