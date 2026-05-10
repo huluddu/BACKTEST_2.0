@@ -610,7 +610,7 @@ with tab2:
             scan_result = get_state("scan_result")
             if scan_result is not None and not scan_result.empty:
                 st.dataframe(
-                    scan_result.style.applymap(
+                    scan_result.style.map(
                         lambda v: "color: #26a69a" if "매수" in str(v) else
                                   "color: #ef5350" if "매도" in str(v) else "",
                         subset=["오늘신호"]
@@ -721,7 +721,7 @@ with tab3:
             log_df = pd.DataFrame(result.trade_log)
             log_df["날짜"] = pd.to_datetime(log_df["날짜"]).dt.strftime("%Y-%m-%d")
             st.dataframe(
-                log_df.style.applymap(
+                log_df.style.map(
                     lambda v: "color: #26a69a; font-weight:bold" if v == "BUY" else
                               "color: #ef5350; font-weight:bold" if v == "SELL" else "",
                     subset=["신호"]
