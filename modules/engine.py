@@ -367,9 +367,10 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         detail     = ""
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # A. 지표값 - 오프셋 기준 수정
-        # 오프셋 1 = 당일(i) 종가, 오프셋 2 = 전일, 오프셋 5 = 4일 전
-        # T+1 매매: 신호는 i봉 종가 기준, 실제 체결은 i+1봉(내일) 시가
+        # A. 지표값
+        # 오프셋 1 = 마지막 완성 봉(i) 종가  → 5/8(금)
+        # 오프셋 2 = i-1 종가                → 5/7(목)
+        # 매매 실행: i+1봉(다음 거래일) 시가  → 5/11(월)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         cl_b_idx = i - (p.offset_cl_buy - 1)
@@ -701,7 +702,8 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
     mkt_cl  = data["mkt_close"]
     mkt_ma  = data["mkt_ma"]
     n       = len(sig_cl)
-    i       = n - 1  # 최신 봉 (오프셋 1 = 이 봉의 종가)
+    i       = n - 1  # 마지막 완성 봉 (기준일의 마지막 거래일)
+    # 오프셋 1 = i봉(5/8 금) 종가, 오프셋 2 = i-1봉(5/7 목) 종가
 
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
