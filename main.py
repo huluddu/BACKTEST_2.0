@@ -759,7 +759,7 @@ with tab2:
             scan_result = get_state("scan_result")
             if scan_result is not None and not scan_result.empty:
                 st.dataframe(
-                    scan_result.style.applymap(
+                    scan_result.style.map(
                         lambda v: "color: #26a69a" if "매수" in str(v) else
                                   "color: #ef5350" if "매도" in str(v) else "",
                         subset=["오늘신호"]
