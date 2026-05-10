@@ -111,10 +111,9 @@ with st.sidebar:
     # ── 전략 파라미터 ──────────────────────────────────
     st.subheader("⚙️ 전략 파라미터")
 
-    # 헬퍼: 리스트에서 값의 인덱스 찾기 (없으면 0)
     def _idx(lst, val):
         try: return lst.index(val)
-        except ValueError: return 0
+        except (ValueError, TypeError): return 0
 
     _MA_LIST  = [5, 10, 20, 50, 60, 120, 200]
     _OFF_LIST = [1, 5, 10, 20]
@@ -122,116 +121,127 @@ with st.sidebar:
     _MA_TL    = [20, 50, 60, 120, 200]
 
     with st.expander("📈 매수 조건", expanded=True):
-        ma_buy       = st.selectbox("매수 이평선", _MA_LIST,
-                           index=_idx(_MA_LIST, st.session_state["_ma_buy"]), key="ma_buy")
-        buy_operator = st.selectbox("조건 연산자", [">", "<"],
-                           index=_idx([">","<"], st.session_state["_buy_op"]), key="buy_op")
-        col1, col2   = st.columns(2)
+        ma_buy = st.selectbox(
+            "매수 이평선", _MA_LIST,
+            index=_idx(_MA_LIST, st.session_state["_ma_buy"]))
+        buy_operator = st.selectbox(
+            "조건 연산자", [">", "<"],
+            index=_idx([">", "<"], st.session_state["_buy_op"]))
+        col1, col2 = st.columns(2)
         with col1:
-            offset_cl_buy = st.selectbox("종가 오프셋", _OFF_LIST,
-                                index=_idx(_OFF_LIST, st.session_state["_off_cl_buy"]), key="off_cl_buy")
+            offset_cl_buy = st.selectbox(
+                "종가 오프셋", _OFF_LIST,
+                index=_idx(_OFF_LIST, st.session_state["_off_cl_buy"]))
         with col2:
-            offset_ma_buy = st.selectbox("MA 오프셋", _OFF_LIST,
-                                index=_idx(_OFF_LIST, st.session_state["_off_ma_buy"]), key="off_ma_buy")
-        # 위젯 변경 시 _ 키에 동기화
+            offset_ma_buy = st.selectbox(
+                "MA 오프셋", _OFF_LIST,
+                index=_idx(_OFF_LIST, st.session_state["_off_ma_buy"]))
         st.session_state["_ma_buy"]     = ma_buy
         st.session_state["_buy_op"]     = buy_operator
         st.session_state["_off_cl_buy"] = offset_cl_buy
         st.session_state["_off_ma_buy"] = offset_ma_buy
 
     with st.expander("📉 매도 조건"):
-        sell_operator = st.selectbox("조건 연산자", ["<", ">", "OFF"],
-                           index=_idx(["<",">","OFF"], st.session_state["_sell_op"]), key="sell_op")
-        ma_sell       = st.selectbox("매도 이평선", _MA_LIST,
-                           index=_idx(_MA_LIST, st.session_state["_ma_sell"]), key="ma_sell")
-        col1, col2    = st.columns(2)
+        sell_operator = st.selectbox(
+            "조건 연산자", ["<", ">", "OFF"],
+            index=_idx(["<", ">", "OFF"], st.session_state["_sell_op"]))
+        ma_sell = st.selectbox(
+            "매도 이평선", _MA_LIST,
+            index=_idx(_MA_LIST, st.session_state["_ma_sell"]))
+        col1, col2 = st.columns(2)
         with col1:
-            offset_cl_sell = st.selectbox("종가 오프셋", _OFF_LIST,
-                                 index=_idx(_OFF_LIST, st.session_state["_off_cl_sell"]), key="off_cl_sell")
+            offset_cl_sell = st.selectbox(
+                "종가 오프셋", _OFF_LIST,
+                index=_idx(_OFF_LIST, st.session_state["_off_cl_sell"]))
         with col2:
-            offset_ma_sell = st.selectbox("MA 오프셋", _OFF_LIST,
-                                 index=_idx(_OFF_LIST, st.session_state["_off_ma_sell"]), key="off_ma_sell")
-        st.session_state["_ma_sell"]      = ma_sell
-        st.session_state["_sell_op"]      = sell_operator
-        st.session_state["_off_cl_sell"]  = offset_cl_sell
-        st.session_state["_off_ma_sell"]  = offset_ma_sell
+            offset_ma_sell = st.selectbox(
+                "MA 오프셋", _OFF_LIST,
+                index=_idx(_OFF_LIST, st.session_state["_off_ma_sell"]))
+        st.session_state["_ma_sell"]     = ma_sell
+        st.session_state["_sell_op"]     = sell_operator
+        st.session_state["_off_cl_sell"] = offset_cl_sell
+        st.session_state["_off_ma_sell"] = offset_ma_sell
 
     with st.expander("🔀 추세 필터"):
-        use_trend_buy  = st.toggle("매수 시 추세 필터",
-                              value=st.session_state["_use_trend_buy"], key="use_trend_buy")
-        use_trend_sell = st.toggle("매도 시 역추세 필터",
-                              value=st.session_state["_use_trend_sell"], key="use_trend_sell")
+        use_trend_buy = st.toggle(
+            "매수 시 추세 필터",
+            value=bool(st.session_state["_use_trend_buy"]))
+        use_trend_sell = st.toggle(
+            "매도 시 역추세 필터",
+            value=bool(st.session_state["_use_trend_sell"]))
         col1, col2 = st.columns(2)
         with col1:
             ma_ts  = st.selectbox("단기 추세선", _MA_TS,
-                          index=_idx(_MA_TS, st.session_state["_ma_ts"]), key="ma_ts")
-            off_ts = st.selectbox("단기 오프셋", _OFF_LIST, key="off_ts")
+                                  index=_idx(_MA_TS, st.session_state["_ma_ts"]))
+            off_ts = st.selectbox("단기 오프셋", _OFF_LIST)
         with col2:
             ma_tl  = st.selectbox("장기 추세선", _MA_TL,
-                          index=_idx(_MA_TL, st.session_state["_ma_tl"]), key="ma_tl")
-            off_tl = st.selectbox("장기 오프셋", _OFF_LIST, key="off_tl")
+                                  index=_idx(_MA_TL, st.session_state["_ma_tl"]))
+            off_tl = st.selectbox("장기 오프셋", _OFF_LIST)
         st.session_state["_use_trend_buy"]  = use_trend_buy
         st.session_state["_use_trend_sell"] = use_trend_sell
         st.session_state["_ma_ts"]          = ma_ts
         st.session_state["_ma_tl"]          = ma_tl
 
     with st.expander("🎯 볼린저 밴드"):
-        use_bb = st.toggle("볼린저 밴드 모드", value=False, key="use_bb")
+        use_bb = st.toggle("볼린저 밴드 모드", value=False)
         if use_bb:
-            bb_period = st.slider("기간", 10, 60, 20, key="bb_period")
-            bb_std    = st.slider("표준편차 배수", 1.0, 3.0, 2.0, 0.1, key="bb_std")
+            bb_period = st.slider("기간", 10, 60, 20)
+            bb_std    = st.slider("표준편차 배수", 1.0, 3.0, 2.0, 0.1)
             bb_entry  = st.selectbox("진입 기준", [
-                "상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"
-            ], key="bb_entry")
+                "상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"])
             bb_exit   = st.selectbox("청산 기준", [
-                "중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"
-            ], key="bb_exit")
+                "중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"])
         else:
             bb_period, bb_std = 20, 2.0
             bb_entry = "상단선 돌파 (추세)"
             bb_exit  = "중심선(MA) 이탈"
 
     with st.expander("📊 MACD 필터"):
-        use_macd = st.toggle("MACD 필터 사용", value=False, key="use_macd")
+        use_macd = st.toggle("MACD 필터 사용", value=False)
         if use_macd:
             col1, col2, col3 = st.columns(3)
             with col1:
-                macd_fast   = st.number_input("Fast", value=12, min_value=2, key="macd_fast")
+                macd_fast   = st.number_input("Fast",   value=12, min_value=2)
             with col2:
-                macd_slow   = st.number_input("Slow", value=26, min_value=2, key="macd_slow")
+                macd_slow   = st.number_input("Slow",   value=26, min_value=2)
             with col3:
-                macd_signal = st.number_input("Signal", value=9, min_value=2, key="macd_signal")
-            macd_mode = st.selectbox("신호 방식", ["히스토그램 양전환", "골든크로스"], key="macd_mode")
+                macd_signal = st.number_input("Signal", value=9,  min_value=2)
+            macd_mode = st.selectbox("신호 방식", ["히스토그램 양전환", "골든크로스"])
         else:
             macd_fast, macd_slow, macd_signal = 12, 26, 9
             macd_mode = "히스토그램 양전환"
 
     with st.expander("📉 RSI 필터"):
-        use_rsi = st.toggle("RSI 필터 사용", value=False, key="use_rsi")
+        use_rsi = st.toggle("RSI 필터 사용", value=False)
         if use_rsi:
-            rsi_period = st.slider("RSI 기간", 5, 30, 14, key="rsi_period")
-            rsi_min, rsi_max = st.slider("허용 RSI 범위", 0, 100, (30, 70), key="rsi_range")
+            rsi_period = st.slider("RSI 기간", 5, 30, 14)
+            rsi_min, rsi_max = st.slider("허용 RSI 범위", 0, 100, (30, 70))
         else:
             rsi_period, rsi_min, rsi_max = 14, 30, 70
 
     with st.expander("🌍 시장 필터"):
-        use_mkt = st.toggle("시장 필터 사용", value=False, key="use_mkt")
-        mkt_ma_p = st.slider("시장 MA 기간", 50, 300, 200, key="mkt_ma_p") if use_mkt else 200
+        use_mkt  = st.toggle("시장 필터 사용", value=False)
+        mkt_ma_p = st.slider("시장 MA 기간", 50, 300, 200) if use_mkt else 200
 
     with st.expander("🛡 손절 / 익절"):
-        use_atr_stop = st.toggle("ATR 손절",
-                           value=st.session_state["_use_atr_stop"], key="use_atr_stop")
+        use_atr_stop = st.toggle(
+            "ATR 손절",
+            value=bool(st.session_state["_use_atr_stop"]))
         if use_atr_stop:
-            atr_mult = st.slider("ATR 배수", 1.0, 5.0,
-                           float(st.session_state["_atr_mult"]), 0.1, key="atr_mult")
+            atr_mult = st.slider(
+                "ATR 배수", 1.0, 5.0,
+                float(st.session_state["_atr_mult"]), 0.1)
             stop_pct = 0.0
         else:
             atr_mult = 2.0
-            stop_pct = st.slider("고정 손절(%)", 0, 50,
-                           int(st.session_state["_stop_pct"]), key="stop_pct")
-        tp_pct   = st.slider("익절(%)", 0, 100,
-                       int(st.session_state["_tp_pct"]), key="tp_pct")
-        min_hold = st.slider("최소 보유일", 0, 30, 0, key="min_hold")
+            stop_pct = st.slider(
+                "고정 손절(%)", 0, 50,
+                int(st.session_state["_stop_pct"]))
+        tp_pct   = st.slider(
+            "익절(%)", 0, 100,
+            int(st.session_state["_tp_pct"]))
+        min_hold = st.slider("최소 보유일", 0, 30, 0)
         st.session_state["_use_atr_stop"] = use_atr_stop
         st.session_state["_atr_mult"]     = atr_mult
         st.session_state["_stop_pct"]     = int(stop_pct)
@@ -782,7 +792,7 @@ with tab3:
             log_df = pd.DataFrame(result.trade_log)
             log_df["날짜"] = pd.to_datetime(log_df["날짜"]).dt.strftime("%Y-%m-%d")
             st.dataframe(
-                log_df.style.applymap(
+                log_df.style.map(
                     lambda v: "color: #26a69a; font-weight:bold" if v == "BUY" else
                               "color: #ef5350; font-weight:bold" if v == "SELL" else "",
                     subset=["신호"]
