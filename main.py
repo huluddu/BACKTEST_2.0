@@ -27,6 +27,7 @@ from modules.engine import (
 from modules.optimizer import (
     SearchSpace, OptimizeConstraints,
     run_optimization, apply_optimal_params,
+    make_full_search_space, make_simple_search_space,
 )
 from modules.portfolio import (
     preset_to_params, run_portfolio_scan, run_period_stress_test,
@@ -807,7 +808,6 @@ with tab4:
             status_ph.caption(f"⏳ Trial {cur}/{total} 완료...")
 
         # ── 탐색 공간 구성 ────────────────────────────────
-        from modules.optimizer import make_full_search_space, make_simple_search_space
         if opt_mode == "🤖 AI 풀옵션 자동 탐색":
             ma_list = ai_ma_choices if ai_ma_choices else [5, 10, 20, 50, 60, 120]
             ss = make_full_search_space(
