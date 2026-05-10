@@ -60,6 +60,23 @@ init_session_state({
     "gemini_key": "",
     "sheet_name": "backtest_strategies",
     "sheet_tab":  "전략목록",
+    # ── 사이드바 위젯 값 (최적화 적용 시 여기를 변경 → 위젯이 읽어감) ──
+    "_ma_buy":        50,
+    "_ma_sell":       10,
+    "_off_cl_buy":    1,
+    "_off_ma_buy":    1,
+    "_off_cl_sell":   1,
+    "_off_ma_sell":   1,
+    "_buy_op":        ">",
+    "_sell_op":       "<",
+    "_use_trend_buy": True,
+    "_use_trend_sell":False,
+    "_ma_ts":         20,
+    "_ma_tl":         50,
+    "_stop_pct":      0,
+    "_tp_pct":        0,
+    "_use_atr_stop":  False,
+    "_atr_mult":      2.0,
 })
 
 # ══════════════════════════════════════════════════════════
@@ -94,34 +111,69 @@ with st.sidebar:
     # ── 전략 파라미터 ──────────────────────────────────
     st.subheader("⚙️ 전략 파라미터")
 
+    # 헬퍼: 리스트에서 값의 인덱스 찾기 (없으면 0)
+    def _idx(lst, val):
+        try: return lst.index(val)
+        except ValueError: return 0
+
+    _MA_LIST  = [5, 10, 20, 50, 60, 120, 200]
+    _OFF_LIST = [1, 5, 10, 20]
+    _MA_TS    = [5, 10, 20, 50]
+    _MA_TL    = [20, 50, 60, 120, 200]
+
     with st.expander("📈 매수 조건", expanded=True):
-        ma_buy       = st.selectbox("매수 이평선", [5,10,20,50,60,120,200], index=3, key="ma_buy")
-        buy_operator = st.selectbox("조건 연산자", [">", "<"], key="buy_op")
+        ma_buy       = st.selectbox("매수 이평선", _MA_LIST,
+                           index=_idx(_MA_LIST, st.session_state["_ma_buy"]), key="ma_buy")
+        buy_operator = st.selectbox("조건 연산자", [">", "<"],
+                           index=_idx([">","<"], st.session_state["_buy_op"]), key="buy_op")
         col1, col2   = st.columns(2)
         with col1:
-            offset_cl_buy = st.selectbox("종가 오프셋", [1,5,10,20], key="off_cl_buy")
+            offset_cl_buy = st.selectbox("종가 오프셋", _OFF_LIST,
+                                index=_idx(_OFF_LIST, st.session_state["_off_cl_buy"]), key="off_cl_buy")
         with col2:
-            offset_ma_buy = st.selectbox("MA 오프셋", [1,5,10,20], key="off_ma_buy")
+            offset_ma_buy = st.selectbox("MA 오프셋", _OFF_LIST,
+                                index=_idx(_OFF_LIST, st.session_state["_off_ma_buy"]), key="off_ma_buy")
+        # 위젯 변경 시 _ 키에 동기화
+        st.session_state["_ma_buy"]     = ma_buy
+        st.session_state["_buy_op"]     = buy_operator
+        st.session_state["_off_cl_buy"] = offset_cl_buy
+        st.session_state["_off_ma_buy"] = offset_ma_buy
 
     with st.expander("📉 매도 조건"):
-        sell_operator = st.selectbox("조건 연산자", ["<", ">", "OFF"], key="sell_op")
-        ma_sell       = st.selectbox("매도 이평선", [5,10,20,50,60,120,200], index=1, key="ma_sell")
+        sell_operator = st.selectbox("조건 연산자", ["<", ">", "OFF"],
+                           index=_idx(["<",">","OFF"], st.session_state["_sell_op"]), key="sell_op")
+        ma_sell       = st.selectbox("매도 이평선", _MA_LIST,
+                           index=_idx(_MA_LIST, st.session_state["_ma_sell"]), key="ma_sell")
         col1, col2    = st.columns(2)
         with col1:
-            offset_cl_sell = st.selectbox("종가 오프셋", [1,5,10,20], key="off_cl_sell")
+            offset_cl_sell = st.selectbox("종가 오프셋", _OFF_LIST,
+                                 index=_idx(_OFF_LIST, st.session_state["_off_cl_sell"]), key="off_cl_sell")
         with col2:
-            offset_ma_sell = st.selectbox("MA 오프셋", [1,5,10,20], key="off_ma_sell")
+            offset_ma_sell = st.selectbox("MA 오프셋", _OFF_LIST,
+                                 index=_idx(_OFF_LIST, st.session_state["_off_ma_sell"]), key="off_ma_sell")
+        st.session_state["_ma_sell"]      = ma_sell
+        st.session_state["_sell_op"]      = sell_operator
+        st.session_state["_off_cl_sell"]  = offset_cl_sell
+        st.session_state["_off_ma_sell"]  = offset_ma_sell
 
     with st.expander("🔀 추세 필터"):
-        use_trend_buy  = st.toggle("매수 시 추세 필터", value=True, key="use_trend_buy")
-        use_trend_sell = st.toggle("매도 시 역추세 필터", value=False, key="use_trend_sell")
+        use_trend_buy  = st.toggle("매수 시 추세 필터",
+                              value=st.session_state["_use_trend_buy"], key="use_trend_buy")
+        use_trend_sell = st.toggle("매도 시 역추세 필터",
+                              value=st.session_state["_use_trend_sell"], key="use_trend_sell")
         col1, col2 = st.columns(2)
         with col1:
-            ma_ts = st.selectbox("단기 추세선", [5,10,20,50], index=2, key="ma_ts")
-            off_ts = st.selectbox("단기 오프셋", [1,5,10,20], key="off_ts")
+            ma_ts  = st.selectbox("단기 추세선", _MA_TS,
+                          index=_idx(_MA_TS, st.session_state["_ma_ts"]), key="ma_ts")
+            off_ts = st.selectbox("단기 오프셋", _OFF_LIST, key="off_ts")
         with col2:
-            ma_tl = st.selectbox("장기 추세선", [20,50,60,120,200], index=1, key="ma_tl")
-            off_tl = st.selectbox("장기 오프셋", [1,5,10,20], key="off_tl")
+            ma_tl  = st.selectbox("장기 추세선", _MA_TL,
+                          index=_idx(_MA_TL, st.session_state["_ma_tl"]), key="ma_tl")
+            off_tl = st.selectbox("장기 오프셋", _OFF_LIST, key="off_tl")
+        st.session_state["_use_trend_buy"]  = use_trend_buy
+        st.session_state["_use_trend_sell"] = use_trend_sell
+        st.session_state["_ma_ts"]          = ma_ts
+        st.session_state["_ma_tl"]          = ma_tl
 
     with st.expander("🎯 볼린저 밴드"):
         use_bb = st.toggle("볼린저 밴드 모드", value=False, key="use_bb")
@@ -167,15 +219,23 @@ with st.sidebar:
         mkt_ma_p = st.slider("시장 MA 기간", 50, 300, 200, key="mkt_ma_p") if use_mkt else 200
 
     with st.expander("🛡 손절 / 익절"):
-        use_atr_stop = st.toggle("ATR 손절", value=False, key="use_atr_stop")
+        use_atr_stop = st.toggle("ATR 손절",
+                           value=st.session_state["_use_atr_stop"], key="use_atr_stop")
         if use_atr_stop:
-            atr_mult    = st.slider("ATR 배수", 1.0, 5.0, 2.0, 0.1, key="atr_mult")
-            stop_pct    = 0.0
+            atr_mult = st.slider("ATR 배수", 1.0, 5.0,
+                           float(st.session_state["_atr_mult"]), 0.1, key="atr_mult")
+            stop_pct = 0.0
         else:
-            atr_mult    = 2.0
-            stop_pct    = st.slider("고정 손절(%)", 0, 50, 0, key="stop_pct")
-        tp_pct = st.slider("익절(%)", 0, 100, 0, key="tp_pct")
+            atr_mult = 2.0
+            stop_pct = st.slider("고정 손절(%)", 0, 50,
+                           int(st.session_state["_stop_pct"]), key="stop_pct")
+        tp_pct   = st.slider("익절(%)", 0, 100,
+                       int(st.session_state["_tp_pct"]), key="tp_pct")
         min_hold = st.slider("최소 보유일", 0, 30, 0, key="min_hold")
+        st.session_state["_use_atr_stop"] = use_atr_stop
+        st.session_state["_atr_mult"]     = atr_mult
+        st.session_state["_stop_pct"]     = int(stop_pct)
+        st.session_state["_tp_pct"]       = int(tp_pct)
 
     with st.expander("💰 매매 비용"):
         strategy_behavior = st.radio(
@@ -905,67 +965,32 @@ with tab4:
         if st.button("✅ 사이드바에 적용하기", type="primary", use_container_width=True, key="opt_apply_btn"):
             row = opt_df.iloc[top_idx]
 
-            # [버그 수정] session_state 위젯 키에 직접 값 주입
-            # → Streamlit은 위젯 키로 값을 읽으므로, 키에 직접 써야 사이드바에 반영됨
-            key_map = {
-                "ma_buy":          ("ma_buy",        int),
-                "ma_sell":         ("ma_sell",       int),
-                "offset_cl_buy":   ("off_cl_buy",    int),
-                "offset_ma_buy":   ("off_ma_buy",    int),
-                "offset_cl_sell":  ("off_cl_sell",   int),
-                "offset_ma_sell":  ("off_ma_sell",   int),
-                "buy_operator":    ("buy_op",        str),
-                "sell_operator":   ("sell_op",       str),
-                "use_trend_buy":   ("use_trend_buy", lambda x: str(x).lower() == "true"),
-                "use_trend_sell":  ("use_trend_sell",lambda x: str(x).lower() == "true"),
-                "ma_trend_short":  ("ma_ts",         int),
-                "ma_trend_long":   ("ma_tl",         int),
-                "stop_loss_pct":   ("stop_pct",      int),
-                "take_profit_pct": ("tp_pct",        int),
-                "use_atr_stop":    ("use_atr_stop",  lambda x: str(x).lower() == "true"),
-                "atr_multiplier":  ("atr_mult",      float),
-            }
+            def _safe_int(v, d):
+                try: return int(float(v))
+                except: return d
+            def _safe_float(v, d):
+                try: return float(v)
+                except: return d
+            def _safe_bool(v):
+                return str(v).lower() in ["true", "1", "t"]
 
-            applied = []
-            for col_name, (widget_key, cast_fn) in key_map.items():
-                if col_name in row.index:
-                    try:
-                        val = cast_fn(row[col_name])
-                        st.session_state[widget_key] = val
-                        applied.append(f"{widget_key}={val}")
-                    except Exception:
-                        pass
-
-            # selectbox 위젯은 값이 아닌 인덱스로 저장되므로 별도 처리
-            ma_choices = [5, 10, 20, 50, 60, 120, 200]
-            off_choices = [1, 5, 10, 20]
-            op_buy_choices = [">", "<"]
-            op_sell_choices = ["<", ">", "OFF"]
-            ts_choices = [5, 10, 20, 50]
-            tl_choices = [20, 50, 60, 120, 200]
-
-            def _safe_idx(lst, val, cast=int):
-                try:
-                    return lst.index(cast(val))
-                except (ValueError, TypeError):
-                    return 0
-
-            st.session_state["ma_buy"]      = int(row.get("ma_buy", 50))
-            st.session_state["ma_sell"]     = int(row.get("ma_sell", 10))
-            st.session_state["off_cl_buy"]  = int(row.get("offset_cl_buy", 1))
-            st.session_state["off_ma_buy"]  = int(row.get("offset_ma_buy", 1))
-            st.session_state["off_cl_sell"] = int(row.get("offset_cl_sell", 1))
-            st.session_state["off_ma_sell"] = int(row.get("offset_ma_sell", 1))
-            st.session_state["buy_op"]      = str(row.get("buy_operator", ">"))
-            st.session_state["sell_op"]     = str(row.get("sell_operator", "<"))
-            st.session_state["use_trend_buy"]  = str(row.get("use_trend_buy", "True")).lower() == "true"
-            st.session_state["use_trend_sell"] = str(row.get("use_trend_sell", "False")).lower() == "true"
-            st.session_state["ma_ts"]       = int(row.get("ma_trend_short", 20))
-            st.session_state["ma_tl"]       = int(row.get("ma_trend_long", 50))
-            st.session_state["stop_pct"]    = int(float(row.get("stop_loss_pct", 0)))
-            st.session_state["tp_pct"]      = int(float(row.get("take_profit_pct", 0)))
-            st.session_state["use_atr_stop"]= str(row.get("use_atr_stop", "False")).lower() == "true"
-            st.session_state["atr_mult"]    = float(row.get("atr_multiplier", 2.0))
+            # [핵심] 위젯 키가 아닌 _ 접두사 키에 저장 → 다음 렌더링 때 위젯 index로 반영
+            st.session_state["_ma_buy"]       = _safe_int(row.get("ma_buy"), 50)
+            st.session_state["_ma_sell"]      = _safe_int(row.get("ma_sell"), 10)
+            st.session_state["_off_cl_buy"]   = _safe_int(row.get("offset_cl_buy"), 1)
+            st.session_state["_off_ma_buy"]   = _safe_int(row.get("offset_ma_buy"), 1)
+            st.session_state["_off_cl_sell"]  = _safe_int(row.get("offset_cl_sell"), 1)
+            st.session_state["_off_ma_sell"]  = _safe_int(row.get("offset_ma_sell"), 1)
+            st.session_state["_buy_op"]       = str(row.get("buy_operator", ">"))
+            st.session_state["_sell_op"]      = str(row.get("sell_operator", "<"))
+            st.session_state["_use_trend_buy"] = _safe_bool(row.get("use_trend_buy", True))
+            st.session_state["_use_trend_sell"]= _safe_bool(row.get("use_trend_sell", False))
+            st.session_state["_ma_ts"]        = _safe_int(row.get("ma_trend_short"), 20)
+            st.session_state["_ma_tl"]        = _safe_int(row.get("ma_trend_long"), 50)
+            st.session_state["_stop_pct"]     = _safe_int(row.get("stop_loss_pct"), 0)
+            st.session_state["_tp_pct"]       = _safe_int(row.get("take_profit_pct"), 0)
+            st.session_state["_use_atr_stop"] = _safe_bool(row.get("use_atr_stop", False))
+            st.session_state["_atr_mult"]     = _safe_float(row.get("atr_multiplier"), 2.0)
 
             st.success("✅ 사이드바 적용 완료! 좌측 사이드바 값이 변경되었습니다.")
             st.info("👉 Tab 3 (백테스트) 탭으로 이동해서 ▶️ 백테스트 실행을 눌러주세요.")
