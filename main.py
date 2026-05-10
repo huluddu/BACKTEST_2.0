@@ -300,16 +300,70 @@ with st.sidebar:
 
     # ── 현재 파라미터 조합 저장 ────────────────────────
     st.subheader("💾 전략 저장")
+
+    # 구글 시트 미연결 시 안내
+    has_gsheet = bool(sheet_name and sheet_tab)
+    if not has_gsheet:
+        st.caption("⚠️ 구글 시트 미연결: 앱 재시작 시 사라지는 임시 저장입니다.")
+    else:
+        st.caption(f"✅ 구글 시트 저장: `{sheet_name}` > `{sheet_tab}`")
+
     save_name = st.text_input("전략 이름", placeholder="예: SOXL_MA50_추세", key="save_name")
     if st.button("💾 현재 설정 저장", use_container_width=True):
         if not save_name:
             st.warning("전략 이름을 입력해주세요")
         else:
-            params_dict = _collect_params_dict()  # 아래 정의
+            # session_state에서 직접 읽어서 dict 구성 (함수 호출 불필요)
+            params_dict = {
+                "signal_ticker_input": st.session_state.get("sig_ticker", "SOXL"),
+                "trade_ticker_input":  st.session_state.get("trd_ticker", "SOXL"),
+                "market_ticker_input": st.session_state.get("mkt_ticker", "SPY"),
+                "ma_buy":              st.session_state.get("ma_buy", 50),
+                "buy_operator":        st.session_state.get("buy_op", ">"),
+                "offset_cl_buy":       st.session_state.get("off_cl_buy", 1),
+                "offset_ma_buy":       st.session_state.get("off_ma_buy", 1),
+                "ma_sell":             st.session_state.get("ma_sell", 10),
+                "sell_operator":       st.session_state.get("sell_op", "<"),
+                "offset_cl_sell":      st.session_state.get("off_cl_sell", 1),
+                "offset_ma_sell":      st.session_state.get("off_ma_sell", 1),
+                "use_trend_in_buy":    st.session_state.get("use_trend_buy", True),
+                "use_trend_in_sell":   st.session_state.get("use_trend_sell", False),
+                "ma_compare_short":    st.session_state.get("ma_ts", 20),
+                "ma_compare_long":     st.session_state.get("ma_tl", 50),
+                "offset_compare_short": st.session_state.get("off_ts", 1),
+                "offset_compare_long": st.session_state.get("off_tl", 1),
+                "use_bollinger":       st.session_state.get("use_bb", False),
+                "bb_period":           st.session_state.get("bb_period", 20),
+                "bb_std":              st.session_state.get("bb_std", 2.0),
+                "bb_entry_type":       st.session_state.get("bb_entry", "상단선 돌파 (추세)"),
+                "bb_exit_type":        st.session_state.get("bb_exit", "중심선(MA) 이탈"),
+                "use_macd":            st.session_state.get("use_macd", False),
+                "macd_fast":           st.session_state.get("macd_fast", 12),
+                "macd_slow":           st.session_state.get("macd_slow", 26),
+                "macd_signal_period":  st.session_state.get("macd_signal", 9),
+                "macd_mode":           st.session_state.get("macd_mode", "히스토그램 양전환"),
+                "use_rsi_filter":      st.session_state.get("use_rsi", False),
+                "rsi_period":          st.session_state.get("rsi_period", 14),
+                "rsi_min":             30,
+                "rsi_max":             70,
+                "use_market_filter":   st.session_state.get("use_mkt", False),
+                "market_ma_period":    st.session_state.get("mkt_ma_p", 200),
+                "use_atr_stop":        st.session_state.get("use_atr_stop", False),
+                "atr_multiplier":      st.session_state.get("atr_mult", 2.0),
+                "stop_loss_pct":       st.session_state.get("stop_pct", 0),
+                "take_profit_pct":     st.session_state.get("tp_pct", 0),
+                "min_hold_days":       st.session_state.get("min_hold", 0),
+                "strategy_behavior":   st.session_state.get("strategy_behavior", "priority_sell"),
+                "initial_cash":        st.session_state.get("init_cash", 5000000),
+                "fee_bps":             st.session_state.get("fee_bps", 25),
+                "slip_bps":            st.session_state.get("slip_bps", 1),
+            }
             presets = get_state("presets")
             presets[save_name] = params_dict
             set_state("presets", presets)
-            save_strategy(sheet_name, sheet_tab, save_name, params_dict)
+            ok = save_strategy(sheet_name, sheet_tab, save_name, params_dict)
+            if not ok and not has_gsheet:
+                st.info("💡 구글 시트에 영구 저장하려면 시트 이름과 탭을 설정하세요.")
 
 
 # ── 파라미터 dict 수집 함수 (사이드바 값 → dict) ──────
