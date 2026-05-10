@@ -870,9 +870,7 @@ with tab4:
         rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
         with rtab1:
             st.dataframe(
-                opt_df[res_cols].head(20).style.background_gradient(
-                    subset=["Full_수익률(%)"], cmap="RdYlGn"
-                ),
+                opt_df[res_cols].head(20),
                 use_container_width=True, hide_index=True,
             )
         with rtab2:
