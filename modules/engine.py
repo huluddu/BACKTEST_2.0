@@ -328,13 +328,6 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
     if n < 60:
         return BacktestResult(error="데이터 부족 (최소 60봉 필요)")
 
-    # ── 오프셋 보정값 계산 ────────────────────────────────
-    # 종료일이 마지막 봉보다 이후면(주말/장 시작 전) 오프셋을 1 감소
-    # → 오프셋 1이 마지막 완성 봉 종가를 가리키도록
-    end_dt      = data.get("end_date", data["base"]["Date"].iloc[-1])
-    last_bar_dt = data.get("last_bar_date", data["base"]["Date"].iloc[-1])
-    offset_adj  = 1 if pd.to_datetime(end_dt) > pd.to_datetime(last_bar_dt) else 0
-
     # ── 지표 배열 미리 꺼내기 (루프 내 dict 접근 최소화) ──
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
@@ -379,15 +372,14 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # A. 지표값
-        # 오프셋 1 = i-1 (전 거래일 종가)
-        # 오프셋 2 = i-2 (2거래일 전 종가)
-        # 체결: next_open (i+1봉 시가) → 미래 참조 없음
+        # 오프셋 1 = i-1 (전 거래일 종가) → 미래 참조 없음
+        # 체결: next_open (i+1봉 시가)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        cl_b_idx = i - p.offset_cl_buy + offset_adj
-        cl_s_idx = i - p.offset_cl_sell + offset_adj
-        ma_b_idx = i - p.offset_ma_buy + offset_adj
-        ma_s_idx = i - p.offset_ma_sell + offset_adj
+        cl_b_idx = i - p.offset_cl_buy
+        cl_s_idx = i - p.offset_cl_sell
+        ma_b_idx = i - p.offset_ma_buy
+        ma_s_idx = i - p.offset_ma_sell
 
         if (cl_b_idx < 0 or cl_s_idx < 0 or ma_b_idx < 0 or ma_s_idx < 0):
             asset_curve[i] = cash + position * close_today
@@ -399,8 +391,8 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         ma_s  = ma_sell_arr[ma_s_idx]
 
         # 추세선
-        ts_idx = max(0, i - p.offset_trend_short + offset_adj)
-        tl_idx = max(0, i - p.offset_trend_long + offset_adj)
+        ts_idx = max(0, i - p.offset_trend_short)
+        tl_idx = max(0, i - p.offset_trend_long)
         trend_short = ma_ts_arr[ts_idx]
         trend_long  = ma_tl_arr[tl_idx]
         trend_up    = (trend_short >= trend_long) if (
