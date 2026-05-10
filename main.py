@@ -60,7 +60,6 @@ init_session_state({
     "gemini_key": "",
     "sheet_name": "backtest_strategies",
     "sheet_tab":  "전략목록",
-    # ── 사이드바 위젯 값 (최적화 적용 시 여기를 변경 → 위젯이 읽어감) ──
     "_ma_buy":        50,
     "_ma_sell":       10,
     "_off_cl_buy":    1,
@@ -77,7 +76,34 @@ init_session_state({
     "_tp_pct":        0,
     "_use_atr_stop":  False,
     "_atr_mult":      2.0,
+    "_apply_pending": False,   # 최적화 결과 적용 대기 플래그
 })
+
+# ══════════════════════════════════════════════════════════
+# 최적화 결과 적용 처리 (위젯 렌더링 전에 실행해야 함)
+# ══════════════════════════════════════════════════════════
+if st.session_state.get("_apply_pending"):
+    st.session_state["_apply_pending"] = False
+    # 위젯 키에 직접 값 주입 (렌더링 전이므로 허용됨)
+    for wk, sk in [
+        ("ma_buy",        "_ma_buy"),
+        ("ma_sell",       "_ma_sell"),
+        ("off_cl_buy",    "_off_cl_buy"),
+        ("off_ma_buy",    "_off_ma_buy"),
+        ("off_cl_sell",   "_off_cl_sell"),
+        ("off_ma_sell",   "_off_ma_sell"),
+        ("buy_op",        "_buy_op"),
+        ("sell_op",       "_sell_op"),
+        ("use_trend_buy", "_use_trend_buy"),
+        ("use_trend_sell","_use_trend_sell"),
+        ("ma_ts",         "_ma_ts"),
+        ("ma_tl",         "_ma_tl"),
+        ("stop_pct",      "_stop_pct"),
+        ("tp_pct",        "_tp_pct"),
+        ("use_atr_stop",  "_use_atr_stop"),
+        ("atr_mult",      "_atr_mult"),
+    ]:
+        st.session_state[wk] = st.session_state[sk]
 
 # ══════════════════════════════════════════════════════════
 # 사이드바: 공통 설정
@@ -960,25 +986,8 @@ with tab4:
             st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
             st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
 
-            # number_input은 key가 있으면 session_state[key]가 우선 → 위젯 키도 같이 덮어써야 반영됨
-            st.session_state["ma_buy"]        = st.session_state["_ma_buy"]
-            st.session_state["ma_sell"]       = st.session_state["_ma_sell"]
-            st.session_state["off_cl_buy"]    = st.session_state["_off_cl_buy"]
-            st.session_state["off_ma_buy"]    = st.session_state["_off_ma_buy"]
-            st.session_state["off_cl_sell"]   = st.session_state["_off_cl_sell"]
-            st.session_state["off_ma_sell"]   = st.session_state["_off_ma_sell"]
-            st.session_state["buy_op"]        = st.session_state["_buy_op"]
-            st.session_state["sell_op"]       = st.session_state["_sell_op"]
-            st.session_state["use_trend_buy"] = st.session_state["_use_trend_buy"]
-            st.session_state["use_trend_sell"]= st.session_state["_use_trend_sell"]
-            st.session_state["ma_ts"]         = st.session_state["_ma_ts"]
-            st.session_state["ma_tl"]         = st.session_state["_ma_tl"]
-            st.session_state["stop_pct"]      = st.session_state["_stop_pct"]
-            st.session_state["tp_pct"]        = st.session_state["_tp_pct"]
-            st.session_state["use_atr_stop"]  = st.session_state["_use_atr_stop"]
-            st.session_state["atr_mult"]      = st.session_state["_atr_mult"]
-
-            st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
+            # 플래그 설정 → 다음 실행 사이클 최상단에서 위젯 키에 주입됨
+            st.session_state["_apply_pending"] = True
             st.rerun()
 
     elif opt_df is not None:
