@@ -50,15 +50,15 @@ def make_full_search_space(ma_choices=None, use_trend=True, use_atr=True) -> Sea
 
 def make_simple_search_space(base_params: StrategyParams) -> SearchSpace:
     return SearchSpace(
-        ma_buy_choices=_MA_SIMPLE, ma_sell_choices=_MA_SIMPLE,
-        offset_cl_buy_choices=_OFF_SIMPLE, offset_ma_buy_choices=_OFF_SIMPLE,
-        offset_cl_sell_choices=_OFF_SIMPLE, offset_ma_sell_choices=_OFF_SIMPLE,
+        ma_buy_choices=_MA_FULL, ma_sell_choices=_MA_FULL,   # [1]+range(5,121,5)
+        offset_cl_buy_choices=_OFFSET_FULL, offset_ma_buy_choices=_OFFSET_FULL,
+        offset_cl_sell_choices=_OFFSET_FULL, offset_ma_sell_choices=_OFFSET_FULL,
         buy_operator_choices=[base_params.buy_operator],
         sell_operator_choices=[base_params.sell_operator],
         use_trend_buy_choices=[base_params.use_trend_buy],
         use_trend_sell_choices=[base_params.use_trend_sell],
-        ma_trend_short_choices=[5, 10, 20, 50],
-        ma_trend_long_choices=[20, 50, 60, 120, 200],
+        ma_trend_short_choices=_MA_FULL,
+        ma_trend_long_choices=_MA_FULL,
         stop_loss_choices=[0.0, 10.0, 15.0, 20.0, 25.0, 35.0],
         take_profit_choices=[0.0, 15.0, 25.0, 35.0, 50.0],
         use_atr_stop_choices=[base_params.use_atr_stop],
