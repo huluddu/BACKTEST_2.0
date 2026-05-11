@@ -72,6 +72,8 @@ init_session_state({
     "_use_trend_sell":False,
     "_ma_ts":         20,
     "_ma_tl":         50,
+    "_off_ts":        1,
+    "_off_tl":        1,
     "_stop_pct":      0,
     "_tp_pct":        0,
     "_use_atr_stop":  False,
@@ -100,6 +102,8 @@ if st.session_state.get("_apply_pending"):
         ("use_trend_sell","_use_trend_sell"),
         ("ma_ts",         "_ma_ts"),
         ("ma_tl",         "_ma_tl"),
+        ("off_ts",        "_off_ts"),
+        ("off_tl",        "_off_tl"),
         ("stop_pct",      "_stop_pct"),
         ("tp_pct",        "_tp_pct"),
         ("use_atr_stop",  "_use_atr_stop"),
@@ -185,6 +189,8 @@ with st.sidebar:
                 st.session_state["_use_trend_sell"]= _sb(pd_dict.get("use_trend_in_sell", False))
                 st.session_state["_ma_ts"]         = _si(pd_dict.get("ma_compare_short"), 20)
                 st.session_state["_ma_tl"]         = _si(pd_dict.get("ma_compare_long"), 50)
+                st.session_state["_off_ts"]        = _si(pd_dict.get("offset_compare_short"), 1)
+                st.session_state["_off_tl"]        = _si(pd_dict.get("offset_compare_long"), 1)
                 st.session_state["_stop_pct"]      = _si(pd_dict.get("stop_loss_pct"), 0)
                 st.session_state["_tp_pct"]        = _si(pd_dict.get("take_profit_pct"), 0)
                 st.session_state["_use_atr_stop"]  = _sb(pd_dict.get("use_atr_stop", False))
@@ -258,16 +264,22 @@ with st.sidebar:
             ma_ts  = st.number_input(
                 "단기 추세선", min_value=1, max_value=500,
                 value=int(st.session_state["_ma_ts"]), step=1, key="ma_ts")
-            off_ts = st.number_input("단기 오프셋", min_value=1, max_value=60, value=1, step=1, key="off_ts")
+            off_ts = st.number_input(
+                "단기 오프셋", min_value=1, max_value=60,
+                value=int(st.session_state["_off_ts"]), step=1, key="off_ts")
         with col2:
             ma_tl  = st.number_input(
                 "장기 추세선", min_value=1, max_value=500,
                 value=int(st.session_state["_ma_tl"]), step=1, key="ma_tl")
-            off_tl = st.number_input("장기 오프셋", min_value=1, max_value=60, value=1, step=1, key="off_tl")
+            off_tl = st.number_input(
+                "장기 오프셋", min_value=1, max_value=60,
+                value=int(st.session_state["_off_tl"]), step=1, key="off_tl")
         st.session_state["_use_trend_buy"]  = use_trend_buy
         st.session_state["_use_trend_sell"] = use_trend_sell
         st.session_state["_ma_ts"]          = int(ma_ts)
         st.session_state["_ma_tl"]          = int(ma_tl)
+        st.session_state["_off_ts"]         = int(off_ts)
+        st.session_state["_off_tl"]         = int(off_tl)
 
     with st.expander("🎯 볼린저 밴드"):
         use_bb = st.toggle("볼린저 밴드 모드", value=False, key="use_bb")
