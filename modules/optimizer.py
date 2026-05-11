@@ -31,8 +31,19 @@ class SearchSpace:
     take_profit_choices:    list = field(default_factory=lambda: [0.0, 15.0, 25.0, 35.0, 50.0])
     use_atr_stop_choices:   list = field(default_factory=lambda: [True, False])
     atr_mult_choices:       list = field(default_factory=lambda: [1.5, 2.0, 2.5, 3.0, 4.0])
+    # RSI 필터 탐색
+    use_rsi_choices:        list = field(default_factory=lambda: [False])
+    rsi_period_choices:     list = field(default_factory=lambda: [14])
+    rsi_max_choices:        list = field(default_factory=lambda: [70])
+    # 볼린저 탐색
+    use_bb_choices:         list = field(default_factory=lambda: [False])
+    bb_period_choices:      list = field(default_factory=lambda: [20])
+    bb_std_choices:         list = field(default_factory=lambda: [2.0])
+    # MACD 탐색
+    use_macd_choices:       list = field(default_factory=lambda: [False])
 
-def make_full_search_space(ma_choices=None, use_trend=True, use_atr=True) -> SearchSpace:
+def make_full_search_space(ma_choices=None, use_trend=True, use_atr=True,
+                           use_rsi=False, use_bb=False, use_macd=False) -> SearchSpace:
     ma = ma_choices or _MA_FULL
     return SearchSpace(
         ma_buy_choices=ma, ma_sell_choices=ma,
@@ -46,6 +57,16 @@ def make_full_search_space(ma_choices=None, use_trend=True, use_atr=True) -> Sea
         take_profit_choices=[0.0, 15.0, 25.0, 35.0, 50.0],
         use_atr_stop_choices=[True, False] if use_atr else [False],
         atr_mult_choices=[2.0, 2.5, 3.0, 4.0],
+        # RSI: 사용 여부 + 기간 + 과매수 기준 탐색
+        use_rsi_choices=[True, False] if use_rsi else [False],
+        rsi_period_choices=[7, 10, 14, 21] if use_rsi else [14],
+        rsi_max_choices=[60, 65, 70, 75, 80] if use_rsi else [70],
+        # 볼린저: 사용 여부 + 기간 + 배수 탐색
+        use_bb_choices=[True, False] if use_bb else [False],
+        bb_period_choices=[10, 15, 20, 30] if use_bb else [20],
+        bb_std_choices=[1.5, 2.0, 2.5] if use_bb else [2.0],
+        # MACD: 사용 여부만 탐색
+        use_macd_choices=[True, False] if use_macd else [False],
     )
 
 def make_simple_search_space(base_params: StrategyParams) -> SearchSpace:
@@ -91,6 +112,23 @@ def _build_params_from_trial(trial, ss, base_params, disable_tp=False):
     p.use_atr_stop   = trial.suggest_categorical("use_atr",     ss.use_atr_stop_choices)
     p.atr_multiplier = trial.suggest_categorical("atr_mult",    ss.atr_mult_choices)
     p.take_profit_pct = 0.0 if disable_tp else trial.suggest_categorical("tp", ss.take_profit_choices)
+
+    # RSI 필터 탐색
+    p.use_rsi_filter = trial.suggest_categorical("use_rsi", ss.use_rsi_choices)
+    if p.use_rsi_filter:
+        p.rsi_period = trial.suggest_categorical("rsi_period", ss.rsi_period_choices)
+        p.rsi_max    = trial.suggest_categorical("rsi_max",    ss.rsi_max_choices)
+        p.rsi_min    = 100 - p.rsi_max  # 과매도 = 100 - 과매수 (대칭)
+
+    # 볼린저 탐색
+    p.use_bollinger = trial.suggest_categorical("use_bb", ss.use_bb_choices)
+    if p.use_bollinger:
+        p.bb_period = trial.suggest_categorical("bb_period", ss.bb_period_choices)
+        p.bb_std    = trial.suggest_categorical("bb_std",    ss.bb_std_choices)
+
+    # MACD 탐색
+    p.use_macd = trial.suggest_categorical("use_macd", ss.use_macd_choices)
+
     if (p.use_trend_buy or p.use_trend_sell) and p.ma_trend_short >= p.ma_trend_long:
         raise optuna.TrialPruned()
     if p.use_atr_stop:
@@ -170,17 +208,23 @@ def run_optimization(
         p = _build_params_from_trial(trial, search_space, base_params, disable_tp)
 
         res_tr = run_backtest(data_train, p)
-        fail = (-999.0, 999.0) if is_multi else -999.0
-        if not res_tr.is_valid or res_tr.total_trades < constraints.min_trades: return fail
-        if res_tr.total_return_pct < constraints.min_train_ret: return fail
+        if not res_tr.is_valid or res_tr.total_trades < constraints.min_trades:
+            raise optuna.TrialPruned()
+        if res_tr.total_return_pct < constraints.min_train_ret:
+            raise optuna.TrialPruned()
 
         res_te = run_backtest(data_test, p)
-        if res_te.total_return_pct < constraints.min_test_ret: return fail
+        if res_te.total_return_pct < constraints.min_test_ret:
+            raise optuna.TrialPruned()
 
         res_full = run_backtest(data_full, p)
-        if not res_full.is_valid: return fail
-        if res_full.win_rate_pct < constraints.min_win_rate: return fail
-        if constraints.max_mdd > 0 and abs(res_full.mdd_pct) > constraints.max_mdd: return fail
+        if not res_full.is_valid:
+            raise optuna.TrialPruned()
+        if res_full.win_rate_pct < constraints.min_win_rate:
+            raise optuna.TrialPruned()
+        # MDD: 절대값이 max_mdd 초과하면 제외 (MDD -80% → abs=80, max_mdd=50이면 제외)
+        if constraints.max_mdd > 0 and abs(res_full.mdd_pct) > constraints.max_mdd:
+            raise optuna.TrialPruned()
 
         if is_multi:
             return res_full.total_return_pct, abs(res_full.mdd_pct)
@@ -213,6 +257,8 @@ def run_optimization(
         res_tr   = run_backtest(data_train, p)
         res_te   = run_backtest(data_test, p)
         if not res_full.is_valid: continue
+        if res_full.total_trades < constraints.min_trades: continue
+        if constraints.max_mdd > 0 and abs(res_full.mdd_pct) > constraints.max_mdd: continue
         rows.append({
             "Full_수익률(%)": res_full.total_return_pct, "Full_MDD(%)": res_full.mdd_pct,
             "Full_승률(%)": res_full.win_rate_pct,       "Full_PF": res_full.profit_factor,
