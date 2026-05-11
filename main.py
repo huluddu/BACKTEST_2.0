@@ -76,15 +76,17 @@ init_session_state({
     "_tp_pct":        0,
     "_use_atr_stop":  False,
     "_atr_mult":      2.0,
-    "_apply_pending": False,   # 최적화 결과 적용 대기 플래그
+    "_apply_pending": False,   # 최적화/전략 적용 대기 플래그
+    "_sig_ticker":    "SOXL",
+    "_trd_ticker":    "SOXL",
+    "_mkt_ticker":    "SPY",
 })
 
 # ══════════════════════════════════════════════════════════
-# 최적화 결과 적용 처리 (위젯 렌더링 전에 실행해야 함)
+# 최적화/전략 결과 적용 처리 (위젯 렌더링 전에 실행해야 함)
 # ══════════════════════════════════════════════════════════
 if st.session_state.get("_apply_pending"):
     st.session_state["_apply_pending"] = False
-    # 위젯 키에 직접 값 주입 (렌더링 전이므로 허용됨)
     for wk, sk in [
         ("ma_buy",        "_ma_buy"),
         ("ma_sell",       "_ma_sell"),
@@ -102,6 +104,10 @@ if st.session_state.get("_apply_pending"):
         ("tp_pct",        "_tp_pct"),
         ("use_atr_stop",  "_use_atr_stop"),
         ("atr_mult",      "_atr_mult"),
+        # 티커도 함께 반영
+        ("sig_ticker",    "_sig_ticker"),
+        ("trd_ticker",    "_trd_ticker"),
+        ("mkt_ticker",    "_mkt_ticker"),
     ]:
         st.session_state[wk] = st.session_state[sk]
 
@@ -161,10 +167,10 @@ with st.sidebar:
                     if isinstance(v, bool): return v
                     return str(v).lower() in ["true", "1", "t"]
 
-                # 티커 (text_input은 직접 덮어쓰기 가능)
-                st.session_state["sig_ticker"] = str(pd_dict.get("signal_ticker_input", "SOXL")).upper()
-                st.session_state["trd_ticker"] = str(pd_dict.get("trade_ticker_input",  "SOXL")).upper()
-                st.session_state["mkt_ticker"] = str(pd_dict.get("market_ticker_input", "SPY")).upper()
+                # 티커는 _ 키에 저장 → _apply_pending 처리 시 위젯 키에 반영
+                st.session_state["_sig_ticker"] = str(pd_dict.get("signal_ticker_input", "SOXL")).upper()
+                st.session_state["_trd_ticker"] = str(pd_dict.get("trade_ticker_input",  "SOXL")).upper()
+                st.session_state["_mkt_ticker"] = str(pd_dict.get("market_ticker_input", "SPY")).upper()
 
                 # _ 키에 저장 후 _apply_pending으로 위젯에 반영
                 st.session_state["_ma_buy"]        = _si(pd_dict.get("ma_buy"), 50)
