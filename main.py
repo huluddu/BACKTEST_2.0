@@ -1111,6 +1111,8 @@ with tab4:
             st.session_state["_use_trend_sell"]= _sb(row.get("use_trend_sell"))
             st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
             st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
+            st.session_state["_off_ts"]        = _si(row.get("offset_trend_short"), 1)
+            st.session_state["_off_tl"]        = _si(row.get("offset_trend_long"), 1)
             st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
             st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
             st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
