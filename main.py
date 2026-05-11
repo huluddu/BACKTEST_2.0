@@ -955,9 +955,10 @@ with tab4:
             "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
         ], key="opt_target")
     with col2:
-        min_trades = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
-        max_mdd    = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
+        min_trades  = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
+        max_mdd     = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
     with col3:
+        min_win_rate = st.number_input("최소 허용 승률 (%)", min_value=0, max_value=100, value=50, step=5, key="opt_min_win_rate")
         st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
         st.caption(f"**{start_date} ~ {end_date}**")
 
@@ -1009,8 +1010,9 @@ with tab4:
                 base_params   = p_base,
                 search_space  = ss,
                 constraints   = OptimizeConstraints(
-                    min_trades = min_trades,
-                    max_mdd    = float(max_mdd) if max_mdd > 0 else 0,
+                    min_trades   = min_trades,
+                    max_mdd      = float(max_mdd) if max_mdd > 0 else 0,
+                    min_win_rate = float(min_win_rate),
                 ),
                 n_trials    = n_trials,
                 target      = opt_target,
