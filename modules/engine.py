@@ -466,11 +466,11 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         # ── MACD 추가 필터 ────────────────────────────
         if p.use_macd and buy_cond:
             if p.macd_mode == "히스토그램 양전환":
-                hist_now  = macd_hist[prev_i] if not np.isnan(macd_hist[prev_i]) else -1
-                hist_prev = macd_hist[prev_i - 1] if prev_i > 0 and not np.isnan(macd_hist[prev_i - 1]) else -1
+                hist_now  = macd_hist[i] if not np.isnan(macd_hist[i]) else -1
+                hist_prev = macd_hist[i - 1] if i > 0 and not np.isnan(macd_hist[i - 1]) else -1
                 macd_ok   = hist_now > 0 and hist_prev <= 0
             else:  # 골든크로스
-                macd_ok = crossover(macd_line, macd_sig, prev_i)
+                macd_ok = crossover(macd_line, macd_sig, i)
             if not macd_ok:
                 buy_cond = False
                 buy_msg += " [MACD미충족]"
