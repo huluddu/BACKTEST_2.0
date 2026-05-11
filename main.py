@@ -992,9 +992,12 @@ with tab4:
 
         # 탐색 공간: 항상 AI 풀옵션 (MA = [1]+range(5,121,5))
         ss = make_full_search_space(
-            ma_choices=None,           # None → _MA_FULL 자동 사용
+            ma_choices=None,
             use_trend=ai_use_trend,
             use_atr=ai_use_atr,
+            use_rsi=ai_use_rsi,
+            use_bb=ai_use_bb,
+            use_macd=ai_use_macd,
         )
         p_base.use_bollinger      = ai_use_bb
         p_base.use_macd           = ai_use_macd
