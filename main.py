@@ -119,10 +119,16 @@ with st.sidebar:
         start_date = st.date_input(
             "시작일",
             value=datetime.date.today() - datetime.timedelta(days=365 * 5),
+            min_value=datetime.date(1990, 1, 1),
             key="start_date",
         )
     with col2:
-        end_date = st.date_input("종료일", value=datetime.date.today(), key="end_date")
+        end_date = st.date_input(
+            "종료일",
+            value=datetime.date.today(),
+            min_value=datetime.date(1990, 1, 1),
+            key="end_date",
+        )
 
     st.divider()
 
@@ -131,6 +137,57 @@ with st.sidebar:
     signal_ticker = st.text_input("시그널 티커",  value="SOXL", key="sig_ticker").upper()
     trade_ticker  = st.text_input("매매 티커",    value="SOXL", key="trd_ticker").upper()
     market_ticker = st.text_input("시장 필터 티커", value="SPY",  key="mkt_ticker").upper()
+
+    st.divider()
+
+    # ── 저장된 전략 불러와서 사이드바 적용 ────────────
+    st.subheader("📂 전략 불러오기")
+    presets_now = get_state("presets")
+    if presets_now:
+        load_name = st.selectbox(
+            "전략 선택", ["선택하세요"] + list(presets_now.keys()), key="load_select"
+        )
+        if st.button("🔄 선택한 전략 사이드바 적용", use_container_width=True):
+            if load_name != "선택하세요":
+                pd_dict = presets_now[load_name]
+
+                def _si(v, d):
+                    try: return int(float(v))
+                    except: return d
+                def _sf(v, d):
+                    try: return float(v)
+                    except: return d
+                def _sb(v, d=False):
+                    if isinstance(v, bool): return v
+                    return str(v).lower() in ["true", "1", "t"]
+
+                # 티커 (text_input은 직접 덮어쓰기 가능)
+                st.session_state["sig_ticker"] = str(pd_dict.get("signal_ticker_input", "SOXL")).upper()
+                st.session_state["trd_ticker"] = str(pd_dict.get("trade_ticker_input",  "SOXL")).upper()
+                st.session_state["mkt_ticker"] = str(pd_dict.get("market_ticker_input", "SPY")).upper()
+
+                # _ 키에 저장 후 _apply_pending으로 위젯에 반영
+                st.session_state["_ma_buy"]        = _si(pd_dict.get("ma_buy"), 50)
+                st.session_state["_ma_sell"]       = _si(pd_dict.get("ma_sell"), 10)
+                st.session_state["_off_cl_buy"]    = _si(pd_dict.get("offset_cl_buy"), 1)
+                st.session_state["_off_ma_buy"]    = _si(pd_dict.get("offset_ma_buy"), 1)
+                st.session_state["_off_cl_sell"]   = _si(pd_dict.get("offset_cl_sell"), 1)
+                st.session_state["_off_ma_sell"]   = _si(pd_dict.get("offset_ma_sell"), 1)
+                st.session_state["_buy_op"]        = str(pd_dict.get("buy_operator", ">"))
+                st.session_state["_sell_op"]       = str(pd_dict.get("sell_operator", "<"))
+                st.session_state["_use_trend_buy"] = _sb(pd_dict.get("use_trend_in_buy", True))
+                st.session_state["_use_trend_sell"]= _sb(pd_dict.get("use_trend_in_sell", False))
+                st.session_state["_ma_ts"]         = _si(pd_dict.get("ma_compare_short"), 20)
+                st.session_state["_ma_tl"]         = _si(pd_dict.get("ma_compare_long"), 50)
+                st.session_state["_stop_pct"]      = _si(pd_dict.get("stop_loss_pct"), 0)
+                st.session_state["_tp_pct"]        = _si(pd_dict.get("take_profit_pct"), 0)
+                st.session_state["_use_atr_stop"]  = _sb(pd_dict.get("use_atr_stop", False))
+                st.session_state["_atr_mult"]      = _sf(pd_dict.get("atr_multiplier"), 2.0)
+                st.session_state["_apply_pending"] = True
+                st.success(f"✅ '{load_name}' 적용 완료!")
+                st.rerun()
+    else:
+        st.caption("저장된 전략이 없습니다. 먼저 전략을 저장하거나 구글 시트에서 불러오세요.")
 
     st.divider()
 
@@ -893,7 +950,7 @@ with tab4:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_trials   = st.slider("탐색 횟수 (많을수록 정확)", 30, 500, 100, step=10, key="opt_n_trials")
+        n_trials   = st.number_input("탐색 횟수 (많을수록 정확)", min_value=10, max_value=10000, value=100, step=10, key="opt_n_trials")
         opt_target = st.selectbox("최적화 목표", [
             "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
         ], key="opt_target")
@@ -901,7 +958,7 @@ with tab4:
         split_ratio = st.slider("Train 비율 (앞부분)", 0.3, 0.8, 0.6, 0.05, key="opt_split")
         min_trades  = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
     with col3:
-        max_mdd      = st.slider("최대 허용 MDD (%) (0=제한없음)", 0, 100, 0, key="opt_max_mdd")
+        max_mdd      = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
         min_test_ret = st.slider("Test 구간 최소 수익률 (%)", -100, 100, -50, key="opt_min_test")
 
     st.divider()
