@@ -88,11 +88,9 @@ def make_simple_search_space(base_params: StrategyParams) -> SearchSpace:
 
 @dataclass
 class OptimizeConstraints:
-    min_trades:    int   = 5
-    min_win_rate:  float = 0.0
-    max_mdd:       float = 0.0
-    min_train_ret: float = -999.0
-    min_test_ret:  float = -999.0
+    min_trades:   int   = 5
+    min_win_rate: float = 0.0
+    max_mdd:      float = 0.0  # 절대값 기준, 0 = 제한 없음
 
 def _build_params_from_trial(trial, ss, base_params, disable_tp=False):
     p = copy.deepcopy(base_params)
@@ -175,11 +173,11 @@ def _slice_data(data, start, end):
 
 def run_optimization(
     signal_ticker, trade_ticker, start_date, end_date,
-    split_ratio, base_params, search_space, constraints,
+    base_params, search_space, constraints,
     n_trials=100, target="수익률 (%)", disable_tp=False, progress_cb=None,
 ):
     """
-    Optuna 최적화 실행.
+    Optuna 최적화 실행 (Train/Test 분리 없음 - 전체 기간 최적화).
     target = "다중 목적 (수익률↑ + MDD↓)" 일 때 Pareto Front 반환.
     Returns: (DataFrame, study)
     """
@@ -193,11 +191,6 @@ def run_optimization(
         st.error("데이터 로드 실패")
         return pd.DataFrame(), None
 
-    n = len(data_full["base"])
-    split_idx  = int(n * split_ratio)
-    data_train = _slice_data(data_full, 0, split_idx)
-    data_test  = _slice_data(data_full, split_idx, n)
-
     sampler = optuna.samplers.TPESampler(seed=42)
     if is_multi:
         study = optuna.create_study(directions=["maximize", "minimize"], sampler=sampler)
@@ -207,35 +200,24 @@ def run_optimization(
     def objective(trial):
         p = _build_params_from_trial(trial, search_space, base_params, disable_tp)
 
-        res_tr = run_backtest(data_train, p)
-        if not res_tr.is_valid or res_tr.total_trades < constraints.min_trades:
+        res = run_backtest(data_full, p)
+        if not res.is_valid or res.total_trades < constraints.min_trades:
             raise optuna.TrialPruned()
-        if res_tr.total_return_pct < constraints.min_train_ret:
+        if res.win_rate_pct < constraints.min_win_rate:
             raise optuna.TrialPruned()
-
-        res_te = run_backtest(data_test, p)
-        if res_te.total_return_pct < constraints.min_test_ret:
-            raise optuna.TrialPruned()
-
-        res_full = run_backtest(data_full, p)
-        if not res_full.is_valid:
-            raise optuna.TrialPruned()
-        if res_full.win_rate_pct < constraints.min_win_rate:
-            raise optuna.TrialPruned()
-        # MDD: 절대값이 max_mdd 초과하면 제외 (MDD -80% → abs=80, max_mdd=50이면 제외)
-        if constraints.max_mdd > 0 and abs(res_full.mdd_pct) > constraints.max_mdd:
+        if constraints.max_mdd > 0 and abs(res.mdd_pct) > constraints.max_mdd:
             raise optuna.TrialPruned()
 
         if is_multi:
-            return res_full.total_return_pct, abs(res_full.mdd_pct)
+            return res.total_return_pct, abs(res.mdd_pct)
         elif target == "Profit Factor":
-            return min(res_full.profit_factor, 999.0)
+            return min(res.profit_factor, 999.0)
         elif target == "승률 (%)":
-            return res_full.win_rate_pct
+            return res.win_rate_pct
         elif target == "MDD 최소화":
-            return -abs(res_full.mdd_pct)
+            return -abs(res.mdd_pct)
         else:
-            return res_full.total_return_pct
+            return res.total_return_pct
 
     def _cb(study, trial):
         if progress_cb: progress_cb(trial.number + 1, n_trials)
@@ -251,34 +233,47 @@ def run_optimization(
 
     rows = []
     for t in trials:
-        tp = t.params
-        p  = _params_from_dict(tp, base_params)
-        res_full = run_backtest(data_full, p)
-        res_tr   = run_backtest(data_train, p)
-        res_te   = run_backtest(data_test, p)
-        if not res_full.is_valid: continue
-        if res_full.total_trades < constraints.min_trades: continue
-        if constraints.max_mdd > 0 and abs(res_full.mdd_pct) > constraints.max_mdd: continue
+        tp  = t.params
+        p   = _params_from_dict(tp, base_params)
+        res = run_backtest(data_full, p)
+        if not res.is_valid: continue
+        if res.total_trades < constraints.min_trades: continue
+        if constraints.max_mdd > 0 and abs(res.mdd_pct) > constraints.max_mdd: continue
         rows.append({
-            "Full_수익률(%)": res_full.total_return_pct, "Full_MDD(%)": res_full.mdd_pct,
-            "Full_승률(%)": res_full.win_rate_pct,       "Full_PF": res_full.profit_factor,
-            "Full_매매횟수": res_full.total_trades,
-            "Train_수익률(%)": res_tr.total_return_pct,
-            "Test_수익률(%)": res_te.total_return_pct,   "Test_MDD(%)": res_te.mdd_pct,
-            "ma_buy": tp.get("ma_buy"),         "ma_sell": tp.get("ma_sell"),
-            "offset_cl_buy": tp.get("off_cl_buy"), "offset_ma_buy": tp.get("off_ma_buy"),
-            "offset_cl_sell": tp.get("off_cl_sell"), "offset_ma_sell": tp.get("off_ma_sell"),
-            "buy_operator": tp.get("buy_op"),   "sell_operator": tp.get("sell_op"),
-            "use_trend_buy": tp.get("use_trend_buy"), "use_trend_sell": tp.get("use_trend_sell"),
-            "ma_trend_short": tp.get("ma_ts"),  "ma_trend_long": tp.get("ma_tl"),
-            "stop_loss_pct": tp.get("sl"),      "take_profit_pct": tp.get("tp", 0.0),
-            "use_atr_stop": tp.get("use_atr"),  "atr_multiplier": tp.get("atr_mult"),
+            "수익률(%)":   res.total_return_pct,
+            "MDD(%)":      res.mdd_pct,
+            "승률(%)":     res.win_rate_pct,
+            "PF":          res.profit_factor,
+            "매매횟수":    res.total_trades,
+            "ma_buy":          tp.get("ma_buy"),
+            "ma_sell":         tp.get("ma_sell"),
+            "offset_cl_buy":   tp.get("off_cl_buy"),
+            "offset_ma_buy":   tp.get("off_ma_buy"),
+            "offset_cl_sell":  tp.get("off_cl_sell"),
+            "offset_ma_sell":  tp.get("off_ma_sell"),
+            "buy_operator":    tp.get("buy_op"),
+            "sell_operator":   tp.get("sell_op"),
+            "use_trend_buy":   tp.get("use_trend_buy"),
+            "use_trend_sell":  tp.get("use_trend_sell"),
+            "ma_trend_short":  tp.get("ma_ts"),
+            "ma_trend_long":   tp.get("ma_tl"),
+            "stop_loss_pct":   tp.get("sl"),
+            "take_profit_pct": tp.get("tp", 0.0),
+            "use_atr_stop":    tp.get("use_atr"),
+            "atr_multiplier":  tp.get("atr_mult"),
+            "use_rsi":         tp.get("use_rsi", False),
+            "rsi_period":      tp.get("rsi_period", 14),
+            "rsi_max":         tp.get("rsi_max", 70),
+            "use_bollinger":   tp.get("use_bb", False),
+            "bb_period":       tp.get("bb_period", 20),
+            "bb_std":          tp.get("bb_std", 2.0),
+            "use_macd":        tp.get("use_macd", False),
         })
 
     if not rows:
         return pd.DataFrame(), study
 
-    return pd.DataFrame(rows).sort_values("Full_수익률(%)", ascending=False), study
+    return pd.DataFrame(rows).sort_values("수익률(%)", ascending=False), study
 
 def apply_optimal_params(row):
     p = StrategyParams()
