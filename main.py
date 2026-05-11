@@ -944,22 +944,22 @@ with tab3:
 # ══════════════════════════════════════════════════════════
 with tab4:
     st.header("⚡ 전략 최적화 (Optuna 베이지안 AI 풀옵션)")
-    st.caption("Train/Test 분리 검증으로 과적합을 방지하며 최적 파라미터를 자동 탐색합니다.")
+    st.caption("전체 분석 기간 기준으로 최적 파라미터를 탐색합니다. 결과의 월간/연간 수익률로 과적합을 직접 검증하세요.")
 
     st.divider()
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_trials   = st.number_input("탐색 횟수 (많을수록 정확)", min_value=10, max_value=10000, value=100, step=10, key="opt_n_trials")
+        n_trials   = st.number_input("탐색 횟수", min_value=10, max_value=10000, value=100, step=10, key="opt_n_trials")
         opt_target = st.selectbox("최적화 목표", [
             "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
         ], key="opt_target")
     with col2:
-        split_ratio = st.slider("Train 비율 (앞부분)", 0.3, 0.8, 0.6, 0.05, key="opt_split")
-        min_trades  = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
+        min_trades = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
+        max_mdd    = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
     with col3:
-        max_mdd      = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
-        min_test_ret = st.slider("Test 구간 최소 수익률 (%)", -100, 100, -50, key="opt_min_test")
+        st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
+        st.caption(f"**{start_date} ~ {end_date}**")
 
     st.divider()
     st.markdown("##### 🤖 AI 탐색 범위 설정")
@@ -990,7 +990,6 @@ with tab4:
             prog_bar.progress(int(cur / total * 100))
             status_ph.caption(f"⏳ Trial {cur}/{total} 완료...")
 
-        # 탐색 공간: 항상 AI 풀옵션 (MA = [1]+range(5,121,5))
         ss = make_full_search_space(
             ma_choices=None,
             use_trend=ai_use_trend,
@@ -999,10 +998,7 @@ with tab4:
             use_bb=ai_use_bb,
             use_macd=ai_use_macd,
         )
-        p_base.use_bollinger      = ai_use_bb
-        p_base.use_macd           = ai_use_macd
-        p_base.use_rsi_filter     = ai_use_rsi
-        p_base.use_market_filter  = ai_use_mkt
+        p_base.use_market_filter = ai_use_mkt
 
         with st.spinner("최적화 실행 중... (탐색 횟수가 많을수록 시간이 걸립니다)"):
             opt_df, opt_study = run_optimization(
@@ -1010,13 +1006,11 @@ with tab4:
                 trade_ticker  = p_base.trade_ticker,
                 start_date    = start_date,
                 end_date      = end_date,
-                split_ratio   = split_ratio,
                 base_params   = p_base,
                 search_space  = ss,
                 constraints   = OptimizeConstraints(
-                    min_trades   = min_trades,
-                    max_mdd      = float(max_mdd) if max_mdd > 0 else 0,
-                    min_test_ret = float(min_test_ret),
+                    min_trades = min_trades,
+                    max_mdd    = float(max_mdd) if max_mdd > 0 else 0,
                 ),
                 n_trials    = n_trials,
                 target      = opt_target,
@@ -1041,8 +1035,7 @@ with tab4:
         if is_multi:
             st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. 공격형 ~ 안정형 중 마음에 드는 것을 선택하세요.")
 
-        res_cols   = ["Full_수익률(%)", "Full_MDD(%)", "Full_승률(%)", "Full_PF",
-                      "Full_매매횟수", "Train_수익률(%)", "Test_수익률(%)", "Test_MDD(%)"]
+        res_cols   = ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
         param_cols = [c for c in opt_df.columns if c not in res_cols]
 
         rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
@@ -1059,10 +1052,10 @@ with tab4:
             "적용할 순위 선택",
             list(range(min(10, len(opt_df)))),
             format_func=lambda i: (
-                f"#{i+1}  수익률 {opt_df.iloc[i]['Full_수익률(%)']:.1f}%  |  "
-                f"MDD {opt_df.iloc[i]['Full_MDD(%)']:.1f}%  |  "
-                f"승률 {opt_df.iloc[i]['Full_승률(%)']:.1f}%  |  "
-                f"매매 {int(opt_df.iloc[i]['Full_매매횟수'])}회"
+                f"#{i+1}  수익률 {opt_df.iloc[i]['수익률(%)']:.1f}%  |  "
+                f"MDD {opt_df.iloc[i]['MDD(%)']:.1f}%  |  "
+                f"승률 {opt_df.iloc[i]['승률(%)']:.1f}%  |  "
+                f"매매 {int(opt_df.iloc[i]['매매횟수'])}회"
             ),
             key="opt_apply_idx",
         )
@@ -1086,7 +1079,6 @@ with tab4:
             def _sb(v, d=False):
                 return str(v).lower() in ["true", "1", "t"]
 
-            # _ 키에 새 값 저장
             st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
             st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
             st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
@@ -1103,17 +1095,15 @@ with tab4:
             st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
             st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
             st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
-
-            # 플래그 설정 → 다음 실행 사이클 최상단에서 위젯 키에 주입됨
             st.session_state["_apply_pending"] = True
+            st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
             st.rerun()
 
     elif opt_df is not None:
         st.warning("유효한 최적화 결과가 없습니다.")
         st.markdown("""
-        - 탐색 횟수를 늘려보세요 (100 → 200)
+        - 탐색 횟수를 늘려보세요
         - 최소 매매 횟수를 줄여보세요 (5 → 2)
-        - Test 최소 수익률 조건을 완화해보세요 (-50 → -100)
         - 최대 허용 MDD를 0(제한없음)으로 설정해보세요
         """)
 
