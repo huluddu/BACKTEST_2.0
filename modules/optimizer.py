@@ -196,32 +196,42 @@ def run_optimization(
     ) if is_multi else optuna.create_study(direction="maximize", sampler=sampler)
 
     def objective(trial):
-        p   = _build_params_from_trial(trial, search_space, base_params, disable_tp)
-        res = run_backtest(data_full, p)
-        if not res.is_valid or res.total_trades < constraints.min_trades:
+        try:
+            p   = _build_params_from_trial(trial, search_space, base_params, disable_tp)
+            res = run_backtest(data_full, p)
+
+            if res is None or not res.is_valid or res.total_trades < constraints.min_trades:
+                raise optuna.TrialPruned()
+            if res.win_rate_pct is None or res.win_rate_pct < constraints.min_win_rate:
+                raise optuna.TrialPruned()
+            if constraints.max_mdd > 0 and abs(res.mdd_pct) > constraints.max_mdd:
+                raise optuna.TrialPruned()
+
+            ret = float(res.total_return_pct) if res.total_return_pct is not None else -999.0
+            mdd = float(abs(res.mdd_pct))     if res.mdd_pct is not None else 999.0
+            pf  = float(min(res.profit_factor, 999.0)) if res.profit_factor is not None else 0.0
+            wr  = float(res.win_rate_pct)     if res.win_rate_pct is not None else 0.0
+
+            if is_multi:
+                return ret, mdd
+            elif target == "Profit Factor":
+                return pf
+            elif target == "승률 (%)":
+                return wr
+            elif target == "MDD 최소화":
+                return -mdd
+            else:
+                return ret
+
+        except optuna.TrialPruned:
+            raise
+        except Exception:
             raise optuna.TrialPruned()
-        if res.win_rate_pct < constraints.min_win_rate:
-            raise optuna.TrialPruned()
-        if constraints.max_mdd > 0 and abs(res.mdd_pct) > constraints.max_mdd:
-            raise optuna.TrialPruned()
-        if is_multi:
-            return res.total_return_pct, abs(res.mdd_pct)
-        elif target == "Profit Factor":
-            return min(res.profit_factor, 999.0)
-        elif target == "승률 (%)":
-            return res.win_rate_pct
-        elif target == "MDD 최소화":
-            return -abs(res.mdd_pct)
-        else:
-            return res.total_return_pct
 
     def _cb(study, trial):
         if progress_cb: progress_cb(trial.number + 1, n_trials)
 
-    try:
-        study.optimize(objective, n_trials=n_trials, callbacks=[_cb], show_progress_bar=False)
-    except Exception as e:
-        st.toast(f"⚠️ 최적화 오류: {e}", icon="⚠️")
+    study.optimize(objective, n_trials=n_trials, callbacks=[_cb], show_progress_bar=False)
 
     trials = study.best_trials if is_multi else [
         t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
