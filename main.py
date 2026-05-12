@@ -60,6 +60,7 @@ init_session_state({
     "gemini_key": "",
     "sheet_name": "backtest_strategies",
     "sheet_tab":  "전략목록",
+    "_auto_loaded": False,   # 자동 불러오기 완료 여부
     "_ma_buy":        50,
     "_ma_sell":       10,
     "_off_cl_buy":    1,
@@ -78,11 +79,27 @@ init_session_state({
     "_tp_pct":        0,
     "_use_atr_stop":  False,
     "_atr_mult":      2.0,
-    "_apply_pending": False,   # 최적화/전략 적용 대기 플래그
+    "_use_rsi":       False,
+    "_rsi_period":    14,
+    "_rsi_min":       30,
+    "_rsi_max":       70,
+    "_apply_pending": False,
     "_sig_ticker":    "SOXL",
     "_trd_ticker":    "SOXL",
     "_mkt_ticker":    "SPY",
 })
+
+# ── 앱 시작 시 구글 시트에서 전략 자동 불러오기 ────────────
+if not st.session_state.get("_auto_loaded"):
+    st.session_state["_auto_loaded"] = True
+    _sheet = st.session_state.get("sheet_name", "backtest_strategies")
+    _tab   = st.session_state.get("sheet_tab",  "전략목록")
+    try:
+        _loaded = load_strategies(_sheet, _tab)
+        if _loaded:
+            st.session_state["presets"] = _loaded
+    except Exception:
+        pass
 
 # ══════════════════════════════════════════════════════════
 # 최적화/전략 결과 적용 처리 (위젯 렌더링 전에 실행해야 함)
@@ -108,12 +125,15 @@ if st.session_state.get("_apply_pending"):
         ("tp_pct",        "_tp_pct"),
         ("use_atr_stop",  "_use_atr_stop"),
         ("atr_mult",      "_atr_mult"),
-        # 티커도 함께 반영
+        ("use_rsi",       "_use_rsi"),
+        ("rsi_period",    "_rsi_period"),
+        ("rsi_range",     "_rsi_range"),   # slider는 tuple
         ("sig_ticker",    "_sig_ticker"),
         ("trd_ticker",    "_trd_ticker"),
         ("mkt_ticker",    "_mkt_ticker"),
     ]:
-        st.session_state[wk] = st.session_state[sk]
+        if sk in st.session_state:
+            st.session_state[wk] = st.session_state[sk]
 
 # ══════════════════════════════════════════════════════════
 # 사이드바: 공통 설정
@@ -195,6 +215,12 @@ with st.sidebar:
                 st.session_state["_tp_pct"]        = _si(pd_dict.get("take_profit_pct"), 0)
                 st.session_state["_use_atr_stop"]  = _sb(pd_dict.get("use_atr_stop", False))
                 st.session_state["_atr_mult"]      = _sf(pd_dict.get("atr_multiplier"), 2.0)
+                # RSI 필터
+                st.session_state["_use_rsi"]       = _sb(pd_dict.get("use_rsi_filter", False))
+                st.session_state["_rsi_period"]    = _si(pd_dict.get("rsi_period"), 14)
+                rsi_min_v = _si(pd_dict.get("rsi_min"), 30)
+                rsi_max_v = _si(pd_dict.get("rsi_max"), 70)
+                st.session_state["_rsi_range"]     = (rsi_min_v, rsi_max_v)
                 st.session_state["_apply_pending"] = True
                 st.success(f"✅ '{load_name}' 적용 완료!")
                 st.rerun()
@@ -311,12 +337,24 @@ with st.sidebar:
             macd_mode = "히스토그램 양전환"
 
     with st.expander("📉 RSI 필터"):
-        use_rsi = st.toggle("RSI 필터 사용", value=False, key="use_rsi")
+        use_rsi = st.toggle(
+            "RSI 필터 사용",
+            value=bool(st.session_state["_use_rsi"]), key="use_rsi")
         if use_rsi:
-            rsi_period = st.slider("RSI 기간", 5, 30, 14, key="rsi_period")
-            rsi_min, rsi_max = st.slider("RSI 허용 범위", 0, 100, (30, 70), key="rsi_range")
+            rsi_period = st.slider(
+                "RSI 기간", 5, 30,
+                int(st.session_state["_rsi_period"]), key="rsi_period")
+            _rsi_range_val = st.session_state.get("_rsi_range", (30, 70))
+            if not isinstance(_rsi_range_val, tuple):
+                _rsi_range_val = (30, 70)
+            rsi_min, rsi_max = st.slider(
+                "RSI 허용 범위", 0, 100,
+                _rsi_range_val, key="rsi_range")
         else:
             rsi_period, rsi_min, rsi_max = 14, 30, 70
+        st.session_state["_use_rsi"]    = use_rsi
+        st.session_state["_rsi_period"] = rsi_period
+        st.session_state["_rsi_range"]  = (rsi_min, rsi_max)
 
     with st.expander("🌍 시장 필터"):
         use_mkt  = st.toggle("시장 필터 사용", value=False, key="use_mkt")
