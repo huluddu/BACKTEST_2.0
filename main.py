@@ -127,7 +127,7 @@ if st.session_state.get("_apply_pending"):
         ("atr_mult",      "_atr_mult"),
         ("use_rsi",       "_use_rsi"),
         ("rsi_period",    "_rsi_period"),
-        ("rsi_range",     "_rsi_range"),   # slider는 tuple
+        ("rsi_range",     "_rsi_range"),
         ("sig_ticker",    "_sig_ticker"),
         ("trd_ticker",    "_trd_ticker"),
         ("mkt_ticker",    "_mkt_ticker"),
@@ -221,6 +221,29 @@ with st.sidebar:
                 rsi_min_v = _si(pd_dict.get("rsi_min"), 30)
                 rsi_max_v = _si(pd_dict.get("rsi_max"), 70)
                 st.session_state["_rsi_range"]     = (rsi_min_v, rsi_max_v)
+                # 볼린저 밴드 (key 직접 설정 가능 - toggle/selectbox는 렌더링 전에만)
+                st.session_state["use_bb"]         = _sb(pd_dict.get("use_bollinger", False))
+                st.session_state["bb_period"]      = _si(pd_dict.get("bb_period"), 20)
+                st.session_state["bb_std"]         = _sf(pd_dict.get("bb_std"), 2.0)
+                bb_entry_v = str(pd_dict.get("bb_entry_type", "상단선 돌파 (추세)"))
+                bb_exit_v  = str(pd_dict.get("bb_exit_type",  "중심선(MA) 이탈"))
+                _bb_entry_list = ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"]
+                _bb_exit_list  = ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"]
+                st.session_state["bb_entry"]       = bb_entry_v if bb_entry_v in _bb_entry_list else "상단선 돌파 (추세)"
+                st.session_state["bb_exit"]        = bb_exit_v  if bb_exit_v  in _bb_exit_list  else "중심선(MA) 이탈"
+                # MACD 필터
+                st.session_state["use_macd"]       = _sb(pd_dict.get("use_macd", False))
+                st.session_state["macd_fast"]      = _si(pd_dict.get("macd_fast"), 12)
+                st.session_state["macd_slow"]      = _si(pd_dict.get("macd_slow"), 26)
+                st.session_state["macd_signal"]    = _si(pd_dict.get("macd_signal_period"), 9)
+                _macd_mode_v = str(pd_dict.get("macd_mode", "히스토그램 양전환"))
+                st.session_state["macd_mode"]      = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
+                # 시장 필터
+                st.session_state["use_mkt"]        = _sb(pd_dict.get("use_market_filter", False))
+                st.session_state["mkt_ma_p"]       = _si(pd_dict.get("market_ma_period"), 200)
+                # 매매 비용
+                if pd_dict.get("strategy_behavior"):
+                    st.session_state["strategy_behavior"] = str(pd_dict.get("strategy_behavior"))
                 st.session_state["_apply_pending"] = True
                 st.success(f"✅ '{load_name}' 적용 완료!")
                 st.rerun()
@@ -639,8 +662,10 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
             ), row=1, col=1)
 
     # ── 매매 시그널 마커 ─────────────────────────────
-    buys  = [l for l in trade_log if l["신호"] == "BUY"]
-    sells = [l for l in trade_log if l["신호"] == "SELL"]
+    buys         = [l for l in trade_log if l["신호"] == "BUY"]
+    sells_normal = [l for l in trade_log if l["신호"] == "SELL" and not l.get("손절발동") and not l.get("익절발동")]
+    sells_stop   = [l for l in trade_log if l["신호"] == "SELL" and l.get("손절발동")]
+    sells_take   = [l for l in trade_log if l["신호"] == "SELL" and l.get("익절발동")]
 
     if buys:
         fig.add_trace(go.Scatter(
@@ -652,14 +677,34 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
             text=[l.get("상세", "") for l in buys],
         ), row=1, col=1)
 
-    if sells:
+    if sells_normal:
         fig.add_trace(go.Scatter(
-            x=[l["날짜"] for l in sells],
-            y=[l["체결가"] for l in sells],
+            x=[l["날짜"] for l in sells_normal],
+            y=[l["체결가"] for l in sells_normal],
             mode="markers",
             marker=dict(symbol="triangle-down", color="#ef5350", size=12),
-            name="매도",
-            text=[l.get("이유", "") for l in sells],
+            name="매도(전략)",
+            text=[l.get("이유", "") for l in sells_normal],
+        ), row=1, col=1)
+
+    if sells_stop:
+        fig.add_trace(go.Scatter(
+            x=[l["날짜"] for l in sells_stop],
+            y=[l["체결가"] for l in sells_stop],
+            mode="markers",
+            marker=dict(symbol="star", color="#FF1744", size=16, line=dict(color="white", width=1)),
+            name="손절",
+            text=[l.get("상세", "") for l in sells_stop],
+        ), row=1, col=1)
+
+    if sells_take:
+        fig.add_trace(go.Scatter(
+            x=[l["날짜"] for l in sells_take],
+            y=[l["체결가"] for l in sells_take],
+            mode="markers",
+            marker=dict(symbol="star", color="#FFD600", size=16, line=dict(color="white", width=1)),
+            name="익절",
+            text=[l.get("상세", "") for l in sells_take],
         ), row=1, col=1)
 
     # ── MACD ────────────────────────────────────────
@@ -1155,6 +1200,23 @@ with tab4:
             st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
             st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
             st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
+            # 볼린저 밴드 적용
+            use_bb_val = _sb(row.get("use_bollinger", False))
+            st.session_state["use_bb"]         = use_bb_val   # toggle은 key 직접 가능(렌더링 전)
+            if use_bb_val:
+                st.session_state["bb_period"]  = _si(row.get("bb_period"), 20)
+                st.session_state["bb_std"]     = _sf(row.get("bb_std"), 2.0)
+                # 진입/청산 기준은 기본값 고정
+                st.session_state["bb_entry"]   = "상단선 돌파 (추세)"
+                st.session_state["bb_exit"]    = "중심선(MA) 이탈"
+            # RSI 필터 적용
+            use_rsi_val = _sb(row.get("use_rsi", False))
+            st.session_state["_use_rsi"]       = use_rsi_val
+            st.session_state["_rsi_period"]    = _si(row.get("rsi_period"), 14)
+            rsi_max_v = _si(row.get("rsi_max"), 70)
+            st.session_state["_rsi_range"]     = (100 - rsi_max_v, rsi_max_v)
+            # MACD 적용
+            st.session_state["use_macd"]       = _sb(row.get("use_macd", False))
             st.session_state["_apply_pending"] = True
             st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
             st.rerun()
