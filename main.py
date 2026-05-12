@@ -83,6 +83,18 @@ init_session_state({
     "_rsi_period":    14,
     "_rsi_min":       30,
     "_rsi_max":       70,
+    "_use_bb":        False,
+    "_bb_period":     20,
+    "_bb_std":        2.0,
+    "_bb_entry":      "상단선 돌파 (추세)",
+    "_bb_exit":       "중심선(MA) 이탈",
+    "_use_macd":      False,
+    "_macd_fast":     12,
+    "_macd_slow":     26,
+    "_macd_signal":   9,
+    "_macd_mode":     "히스토그램 양전환",
+    "_use_mkt":       False,
+    "_mkt_ma_p":      200,
     "_apply_pending": False,
     "_sig_ticker":    "SOXL",
     "_trd_ticker":    "SOXL",
@@ -128,6 +140,18 @@ if st.session_state.get("_apply_pending"):
         ("use_rsi",       "_use_rsi"),
         ("rsi_period",    "_rsi_period"),
         ("rsi_range",     "_rsi_range"),
+        ("use_bb",        "_use_bb"),
+        ("bb_period",     "_bb_period"),
+        ("bb_std",        "_bb_std"),
+        ("bb_entry",      "_bb_entry"),
+        ("bb_exit",       "_bb_exit"),
+        ("use_macd",      "_use_macd"),
+        ("macd_fast",     "_macd_fast"),
+        ("macd_slow",     "_macd_slow"),
+        ("macd_signal",   "_macd_signal"),
+        ("macd_mode",     "_macd_mode"),
+        ("use_mkt",       "_use_mkt"),
+        ("mkt_ma_p",      "_mkt_ma_p"),
         ("sig_ticker",    "_sig_ticker"),
         ("trd_ticker",    "_trd_ticker"),
         ("mkt_ticker",    "_mkt_ticker"),
@@ -221,26 +245,26 @@ with st.sidebar:
                 rsi_min_v = _si(pd_dict.get("rsi_min"), 30)
                 rsi_max_v = _si(pd_dict.get("rsi_max"), 70)
                 st.session_state["_rsi_range"]     = (rsi_min_v, rsi_max_v)
-                # 볼린저 밴드 (key 직접 설정 가능 - toggle/selectbox는 렌더링 전에만)
-                st.session_state["use_bb"]         = _sb(pd_dict.get("use_bollinger", False))
-                st.session_state["bb_period"]      = _si(pd_dict.get("bb_period"), 20)
-                st.session_state["bb_std"]         = _sf(pd_dict.get("bb_std"), 2.0)
-                bb_entry_v = str(pd_dict.get("bb_entry_type", "상단선 돌파 (추세)"))
-                bb_exit_v  = str(pd_dict.get("bb_exit_type",  "중심선(MA) 이탈"))
+                # 볼린저 밴드
+                st.session_state["_use_bb"]        = _sb(pd_dict.get("use_bollinger", False))
+                st.session_state["_bb_period"]     = _si(pd_dict.get("bb_period"), 20)
+                st.session_state["_bb_std"]        = _sf(pd_dict.get("bb_std"), 2.0)
                 _bb_entry_list = ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"]
                 _bb_exit_list  = ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"]
-                st.session_state["bb_entry"]       = bb_entry_v if bb_entry_v in _bb_entry_list else "상단선 돌파 (추세)"
-                st.session_state["bb_exit"]        = bb_exit_v  if bb_exit_v  in _bb_exit_list  else "중심선(MA) 이탈"
+                bb_entry_v = str(pd_dict.get("bb_entry_type", "상단선 돌파 (추세)"))
+                bb_exit_v  = str(pd_dict.get("bb_exit_type",  "중심선(MA) 이탈"))
+                st.session_state["_bb_entry"]      = bb_entry_v if bb_entry_v in _bb_entry_list else "상단선 돌파 (추세)"
+                st.session_state["_bb_exit"]       = bb_exit_v  if bb_exit_v  in _bb_exit_list  else "중심선(MA) 이탈"
                 # MACD 필터
-                st.session_state["use_macd"]       = _sb(pd_dict.get("use_macd", False))
-                st.session_state["macd_fast"]      = _si(pd_dict.get("macd_fast"), 12)
-                st.session_state["macd_slow"]      = _si(pd_dict.get("macd_slow"), 26)
-                st.session_state["macd_signal"]    = _si(pd_dict.get("macd_signal_period"), 9)
+                st.session_state["_use_macd"]      = _sb(pd_dict.get("use_macd", False))
+                st.session_state["_macd_fast"]     = _si(pd_dict.get("macd_fast"), 12)
+                st.session_state["_macd_slow"]     = _si(pd_dict.get("macd_slow"), 26)
+                st.session_state["_macd_signal"]   = _si(pd_dict.get("macd_signal_period"), 9)
                 _macd_mode_v = str(pd_dict.get("macd_mode", "히스토그램 양전환"))
-                st.session_state["macd_mode"]      = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
+                st.session_state["_macd_mode"]     = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
                 # 시장 필터
-                st.session_state["use_mkt"]        = _sb(pd_dict.get("use_market_filter", False))
-                st.session_state["mkt_ma_p"]       = _si(pd_dict.get("market_ma_period"), 200)
+                st.session_state["_use_mkt"]       = _sb(pd_dict.get("use_market_filter", False))
+                st.session_state["_mkt_ma_p"]      = _si(pd_dict.get("market_ma_period"), 200)
                 # 매매 비용
                 if pd_dict.get("strategy_behavior"):
                     st.session_state["strategy_behavior"] = str(pd_dict.get("strategy_behavior"))
@@ -331,33 +355,56 @@ with st.sidebar:
         st.session_state["_off_tl"]         = int(off_tl)
 
     with st.expander("🎯 볼린저 밴드"):
-        use_bb = st.toggle("볼린저 밴드 모드", value=False, key="use_bb")
+        use_bb = st.toggle(
+            "볼린저 밴드 모드",
+            value=bool(st.session_state["_use_bb"]), key="use_bb")
         if use_bb:
-            bb_period = st.slider("BB 기간", 10, 60, 20, key="bb_period")
-            bb_std    = st.slider("BB 표준편차 배수", 1.0, 3.0, 2.0, 0.1, key="bb_std")
-            bb_entry  = st.selectbox("BB 진입 기준", [
-                "상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"], key="bb_entry")
-            bb_exit   = st.selectbox("BB 청산 기준", [
-                "중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"], key="bb_exit")
+            bb_period = st.slider("BB 기간", 10, 60,
+                                  int(st.session_state["_bb_period"]), key="bb_period")
+            bb_std    = st.slider("BB 표준편차 배수", 1.0, 3.0,
+                                  float(st.session_state["_bb_std"]), 0.1, key="bb_std")
+            _bb_entry_list = ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"]
+            _bb_exit_list  = ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"]
+            _bb_entry_val  = st.session_state["_bb_entry"] if st.session_state["_bb_entry"] in _bb_entry_list else "상단선 돌파 (추세)"
+            _bb_exit_val   = st.session_state["_bb_exit"]  if st.session_state["_bb_exit"]  in _bb_exit_list  else "중심선(MA) 이탈"
+            bb_entry  = st.selectbox("BB 진입 기준", _bb_entry_list,
+                                     index=_bb_entry_list.index(_bb_entry_val), key="bb_entry")
+            bb_exit   = st.selectbox("BB 청산 기준", _bb_exit_list,
+                                     index=_bb_exit_list.index(_bb_exit_val),  key="bb_exit")
         else:
             bb_period, bb_std = 20, 2.0
             bb_entry = "상단선 돌파 (추세)"
             bb_exit  = "중심선(MA) 이탈"
+        st.session_state["_use_bb"]    = use_bb
+        st.session_state["_bb_period"] = bb_period
+        st.session_state["_bb_std"]    = bb_std
+        st.session_state["_bb_entry"]  = bb_entry
+        st.session_state["_bb_exit"]   = bb_exit
 
     with st.expander("📊 MACD 필터"):
-        use_macd = st.toggle("MACD 필터 사용", value=False, key="use_macd")
+        use_macd = st.toggle(
+            "MACD 필터 사용",
+            value=bool(st.session_state["_use_macd"]), key="use_macd")
         if use_macd:
             col1, col2, col3 = st.columns(3)
             with col1:
-                macd_fast   = st.number_input("MACD Fast",   value=12, min_value=2, key="macd_fast")
+                macd_fast   = st.number_input("MACD Fast",   value=int(st.session_state["_macd_fast"]),   min_value=2, key="macd_fast")
             with col2:
-                macd_slow   = st.number_input("MACD Slow",   value=26, min_value=2, key="macd_slow")
+                macd_slow   = st.number_input("MACD Slow",   value=int(st.session_state["_macd_slow"]),   min_value=2, key="macd_slow")
             with col3:
-                macd_signal = st.number_input("MACD Signal", value=9,  min_value=2, key="macd_signal")
-            macd_mode = st.selectbox("MACD 신호 방식", ["히스토그램 양전환", "골든크로스"], key="macd_mode")
+                macd_signal = st.number_input("MACD Signal", value=int(st.session_state["_macd_signal"]), min_value=2, key="macd_signal")
+            _macd_mode_list = ["히스토그램 양전환", "골든크로스"]
+            _macd_mode_val  = st.session_state["_macd_mode"] if st.session_state["_macd_mode"] in _macd_mode_list else "히스토그램 양전환"
+            macd_mode = st.selectbox("MACD 신호 방식", _macd_mode_list,
+                                     index=_macd_mode_list.index(_macd_mode_val), key="macd_mode")
         else:
             macd_fast, macd_slow, macd_signal = 12, 26, 9
             macd_mode = "히스토그램 양전환"
+        st.session_state["_use_macd"]    = use_macd
+        st.session_state["_macd_fast"]   = macd_fast
+        st.session_state["_macd_slow"]   = macd_slow
+        st.session_state["_macd_signal"] = macd_signal
+        st.session_state["_macd_mode"]   = macd_mode
 
     with st.expander("📉 RSI 필터"):
         use_rsi = st.toggle(
@@ -380,8 +427,13 @@ with st.sidebar:
         st.session_state["_rsi_range"]  = (rsi_min, rsi_max)
 
     with st.expander("🌍 시장 필터"):
-        use_mkt  = st.toggle("시장 필터 사용", value=False, key="use_mkt")
-        mkt_ma_p = st.slider("시장 MA 기간", 50, 300, 200, key="mkt_ma_p") if use_mkt else 200
+        use_mkt = st.toggle(
+            "시장 필터 사용",
+            value=bool(st.session_state["_use_mkt"]), key="use_mkt")
+        mkt_ma_p = st.slider("시장 MA 기간", 50, 300,
+                             int(st.session_state["_mkt_ma_p"]), key="mkt_ma_p") if use_mkt else 200
+        st.session_state["_use_mkt"]  = use_mkt
+        st.session_state["_mkt_ma_p"] = mkt_ma_p
 
     with st.expander("🛡 손절 / 익절"):
         use_atr_stop = st.toggle(
@@ -1200,23 +1252,21 @@ with tab4:
             st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
             st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
             st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
-            # 볼린저 밴드 적용
+            # 볼린저 밴드
             use_bb_val = _sb(row.get("use_bollinger", False))
-            st.session_state["use_bb"]         = use_bb_val   # toggle은 key 직접 가능(렌더링 전)
-            if use_bb_val:
-                st.session_state["bb_period"]  = _si(row.get("bb_period"), 20)
-                st.session_state["bb_std"]     = _sf(row.get("bb_std"), 2.0)
-                # 진입/청산 기준은 기본값 고정
-                st.session_state["bb_entry"]   = "상단선 돌파 (추세)"
-                st.session_state["bb_exit"]    = "중심선(MA) 이탈"
-            # RSI 필터 적용
+            st.session_state["_use_bb"]        = use_bb_val
+            st.session_state["_bb_period"]     = _si(row.get("bb_period"), 20)
+            st.session_state["_bb_std"]        = _sf(row.get("bb_std"), 2.0)
+            st.session_state["_bb_entry"]      = "상단선 돌파 (추세)"
+            st.session_state["_bb_exit"]       = "중심선(MA) 이탈"
+            # RSI 필터
             use_rsi_val = _sb(row.get("use_rsi", False))
             st.session_state["_use_rsi"]       = use_rsi_val
             st.session_state["_rsi_period"]    = _si(row.get("rsi_period"), 14)
             rsi_max_v = _si(row.get("rsi_max"), 70)
             st.session_state["_rsi_range"]     = (100 - rsi_max_v, rsi_max_v)
-            # MACD 적용
-            st.session_state["use_macd"]       = _sb(row.get("use_macd", False))
+            # MACD
+            st.session_state["_use_macd"]      = _sb(row.get("use_macd", False))
             st.session_state["_apply_pending"] = True
             st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
             st.rerun()
