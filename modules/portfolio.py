@@ -85,7 +85,6 @@ def preset_to_params(p: dict) -> StrategyParams:
         min_hold_days   = _int("min_hold_days", 0),
         fee_bps         = _float("fee_bps", 25.0),
         slip_bps        = _float("slip_bps", 1.0),
-        strategy_behavior = _str("strategy_behavior", "priority_sell"),
     )
     return sp
 
