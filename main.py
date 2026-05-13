@@ -95,6 +95,7 @@ init_session_state({
     "_use_mkt":       False,
     "_mkt_ma_p":      200,
     "_apply_pending": False,
+    "_ticker_pending": False,
     "_sig_ticker":    "SOXL",
     "_trd_ticker":    "SOXL",
     "_mkt_ticker":    "SPY",
@@ -155,12 +156,15 @@ if st.session_state.get("_apply_pending"):
         ("macd_mode",     "_macd_mode"),
         ("use_mkt",       "_use_mkt"),
         ("mkt_ma_p",      "_mkt_ma_p"),
-        ("sig_ticker",    "_sig_ticker"),
-        ("trd_ticker",    "_trd_ticker"),
-        ("mkt_ticker",    "_mkt_ticker"),
     ]:
         if sk in st.session_state:
             st.session_state[wk] = st.session_state[sk]
+    # 티커는 _ticker_pending 플래그가 있을 때만 반영 (전략 불러오기 전용)
+    if st.session_state.get("_ticker_pending"):
+        st.session_state["_ticker_pending"] = False
+        st.session_state["sig_ticker"] = st.session_state["_sig_ticker"]
+        st.session_state["trd_ticker"] = st.session_state["_trd_ticker"]
+        st.session_state["mkt_ticker"] = st.session_state["_mkt_ticker"]
 
 # ══════════════════════════════════════════════════════════
 # 사이드바: 공통 설정
@@ -218,10 +222,11 @@ with st.sidebar:
                     if isinstance(v, bool): return v
                     return str(v).lower() in ["true", "1", "t"]
 
-                # 티커는 _ 키에 저장 → _apply_pending 처리 시 위젯 키에 반영
+                # 티커는 _ticker_pending으로 별도 처리
                 st.session_state["_sig_ticker"] = str(pd_dict.get("signal_ticker_input", "SOXL")).upper()
                 st.session_state["_trd_ticker"] = str(pd_dict.get("trade_ticker_input",  "SOXL")).upper()
                 st.session_state["_mkt_ticker"] = str(pd_dict.get("market_ticker_input", "SPY")).upper()
+                st.session_state["_ticker_pending"] = True
 
                 # _ 키에 저장 후 _apply_pending으로 위젯에 반영
                 st.session_state["_ma_buy"]        = _si(pd_dict.get("ma_buy"), 50)
