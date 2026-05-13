@@ -51,14 +51,11 @@ class SearchSpace:
     use_rsi_choices:            list = field(default_factory=lambda: ["0"])
     rsi_period_choices:         list = field(default_factory=lambda: ["14"])
     rsi_max_choices:            list = field(default_factory=lambda: ["70"])
-    use_bb_choices:             list = field(default_factory=lambda: ["0"])
-    bb_period_choices:          list = field(default_factory=lambda: ["20"])
-    bb_std_choices:             list = field(default_factory=lambda: ["2.0"])
     use_macd_choices:           list = field(default_factory=lambda: ["0"])
 
 
 def make_full_search_space(ma_choices=None, use_trend=True, use_atr=True,
-                           use_rsi=False, use_bb=False, use_macd=False) -> SearchSpace:
+                           use_rsi=False, use_macd=False) -> SearchSpace:
     ma = ma_choices or _MA_FULL
     return SearchSpace(
         ma_buy_choices=ma, ma_sell_choices=ma,
@@ -79,9 +76,6 @@ def make_full_search_space(ma_choices=None, use_trend=True, use_atr=True,
         use_rsi_choices=["1", "0"] if use_rsi else ["0"],
         rsi_period_choices=["7", "10", "14", "21"] if use_rsi else ["14"],
         rsi_max_choices=["60", "65", "70", "75", "80"] if use_rsi else ["70"],
-        use_bb_choices=["1", "0"] if use_bb else ["0"],
-        bb_period_choices=["10", "15", "20", "30"] if use_bb else ["20"],
-        bb_std_choices=["1.5", "2.0", "2.5"] if use_bb else ["2.0"],
         use_macd_choices=["1", "0"] if use_macd else ["0"],
     )
 
@@ -141,11 +135,6 @@ def _build_params_from_trial(trial, ss, base_params, disable_tp=False):
         p.rsi_max    = _si(trial.suggest_categorical("rsi_max",    ss.rsi_max_choices))
         p.rsi_min    = 100 - p.rsi_max
 
-    p.use_bollinger = _s2b(trial.suggest_categorical("use_bb", ss.use_bb_choices))
-    if p.use_bollinger:
-        p.bb_period = _si(trial.suggest_categorical("bb_period", ss.bb_period_choices))
-        p.bb_std    = _sf(trial.suggest_categorical("bb_std",    ss.bb_std_choices))
-
     p.use_macd = _s2b(trial.suggest_categorical("use_macd", ss.use_macd_choices))
 
     if (p.use_trend_buy or p.use_trend_sell) and p.ma_trend_short >= p.ma_trend_long:
@@ -178,9 +167,6 @@ def _params_from_dict(tp, base_params):
     p.use_rsi_filter     = _s2b(tp.get("use_rsi", "0"))
     p.rsi_period         = _si(tp.get("rsi_period", "14"))
     p.rsi_max            = _si(tp.get("rsi_max", "70"))
-    p.use_bollinger      = _s2b(tp.get("use_bb", "0"))
-    p.bb_period          = _si(tp.get("bb_period", "20"))
-    p.bb_std             = _sf(tp.get("bb_std", "2.0"))
     p.use_macd           = _s2b(tp.get("use_macd", "0"))
     if p.use_atr_stop: p.stop_loss_pct = 0.0
     return p
@@ -284,9 +270,6 @@ def run_optimization(
             "use_rsi":             _s2b(tp.get("use_rsi", "0")),
             "rsi_period":          _si(tp.get("rsi_period", "14")),
             "rsi_max":             _si(tp.get("rsi_max", "70")),
-            "use_bollinger":       _s2b(tp.get("use_bb", "0")),
-            "bb_period":           _si(tp.get("bb_period", "20")),
-            "bb_std":              _sf(tp.get("bb_std", "2.0")),
             "use_macd":            _s2b(tp.get("use_macd", "0")),
         })
 
