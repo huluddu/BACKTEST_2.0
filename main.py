@@ -269,8 +269,6 @@ with st.sidebar:
                 st.session_state["_use_mkt"]       = _sb(pd_dict.get("use_market_filter", False))
                 st.session_state["_mkt_ma_p"]      = _si(pd_dict.get("market_ma_period"), 200)
                 # 매매 비용
-                if pd_dict.get("strategy_behavior"):
-                    st.session_state["strategy_behavior"] = str(pd_dict.get("strategy_behavior"))
                 st.session_state["_apply_pending"] = True
                 st.success(f"✅ '{load_name}' 적용 완료!")
                 st.rerun()
@@ -432,12 +430,6 @@ with st.sidebar:
         st.session_state["_tp_pct"]       = int(tp_pct)
 
     with st.expander("💰 매매 비용"):
-        strategy_behavior = st.radio(
-            "동시 신호 처리",
-            ["priority_sell", "mutual"],
-            format_func=lambda x: "매도 우선" if x == "priority_sell" else "매도 후 즉시 재매수",
-            key="strategy_behavior",
-        )
         initial_cash = st.number_input("초기 자금 (원)", value=5_000_000, step=1_000_000, key="init_cash")
         fee_bps  = st.slider("수수료 (bps)", 0, 100, 25, key="fee_bps")
         slip_bps = st.slider("슬리피지 (bps)", 0, 50, 1, key="slip_bps")
@@ -517,7 +509,6 @@ with st.sidebar:
                 "stop_loss_pct":       st.session_state.get("stop_pct", 0),
                 "take_profit_pct":     st.session_state.get("tp_pct", 0),
                 "min_hold_days":       st.session_state.get("min_hold", 0),
-                "strategy_behavior":   st.session_state.get("strategy_behavior", "priority_sell"),
                 "initial_cash":        st.session_state.get("init_cash", 5000000),
                 "fee_bps":             st.session_state.get("fee_bps", 25),
                 "slip_bps":            st.session_state.get("slip_bps", 1),
@@ -566,7 +557,6 @@ def _collect_params_dict() -> dict:
         "stop_loss_pct":       stop_pct,
         "take_profit_pct":     tp_pct,
         "min_hold_days":       min_hold,
-        "strategy_behavior":   strategy_behavior,
         "initial_cash":        initial_cash,
         "fee_bps":             fee_bps,
         "slip_bps":            slip_bps,
@@ -609,7 +599,6 @@ def _collect_params() -> StrategyParams:
         stop_loss_pct      = stop_pct,
         take_profit_pct    = tp_pct,
         min_hold_days      = min_hold,
-        strategy_behavior  = strategy_behavior,
         initial_cash       = float(initial_cash),
         fee_bps            = float(fee_bps),
         slip_bps           = float(slip_bps),
