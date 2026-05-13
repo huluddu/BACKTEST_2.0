@@ -99,6 +99,10 @@ init_session_state({
     "_sig_ticker":    "SOXL",
     "_trd_ticker":    "SOXL",
     "_mkt_ticker":    "SPY",
+    # 티커 위젯 키 기본값 (text_input은 key만 있으면 이 값으로 초기화)
+    "sig_ticker":     "SOXL",
+    "trd_ticker":     "SOXL",
+    "mkt_ticker":     "SPY",
 })
 
 # ── 앱 시작 시 구글 시트에서 전략 자동 불러오기 ────────────
@@ -188,9 +192,9 @@ with st.sidebar:
 
     # ── 티커 설정 ──────────────────────────────────────
     st.subheader("🔖 티커")
-    signal_ticker = st.text_input("시그널 티커",  value="SOXL", key="sig_ticker").upper()
-    trade_ticker  = st.text_input("매매 티커",    value="SOXL", key="trd_ticker").upper()
-    market_ticker = st.text_input("시장 필터 티커", value="SPY",  key="mkt_ticker").upper()
+    signal_ticker = st.text_input("시그널 티커",  key="sig_ticker").upper()
+    trade_ticker  = st.text_input("매매 티커",    key="trd_ticker").upper()
+    market_ticker = st.text_input("시장 필터 티커", key="mkt_ticker").upper()
 
     st.divider()
 
