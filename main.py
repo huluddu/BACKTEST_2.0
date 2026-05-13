@@ -358,33 +358,6 @@ with st.sidebar:
         st.session_state["_off_ts"]         = int(off_ts)
         st.session_state["_off_tl"]         = int(off_tl)
 
-    with st.expander("🎯 볼린저 밴드"):
-        use_bb = st.toggle(
-            "볼린저 밴드 모드",
-            value=bool(st.session_state["_use_bb"]), key="use_bb")
-        if use_bb:
-            bb_period = st.slider("BB 기간", 10, 60,
-                                  int(st.session_state["_bb_period"]), key="bb_period")
-            bb_std    = st.slider("BB 표준편차 배수", 1.0, 3.0,
-                                  float(st.session_state["_bb_std"]), 0.1, key="bb_std")
-            _bb_entry_list = ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"]
-            _bb_exit_list  = ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"]
-            _bb_entry_val  = st.session_state["_bb_entry"] if st.session_state["_bb_entry"] in _bb_entry_list else "상단선 돌파 (추세)"
-            _bb_exit_val   = st.session_state["_bb_exit"]  if st.session_state["_bb_exit"]  in _bb_exit_list  else "중심선(MA) 이탈"
-            bb_entry  = st.selectbox("BB 진입 기준", _bb_entry_list,
-                                     index=_bb_entry_list.index(_bb_entry_val), key="bb_entry")
-            bb_exit   = st.selectbox("BB 청산 기준", _bb_exit_list,
-                                     index=_bb_exit_list.index(_bb_exit_val),  key="bb_exit")
-        else:
-            bb_period, bb_std = 20, 2.0
-            bb_entry = "상단선 돌파 (추세)"
-            bb_exit  = "중심선(MA) 이탈"
-        st.session_state["_use_bb"]    = use_bb
-        st.session_state["_bb_period"] = bb_period
-        st.session_state["_bb_std"]    = bb_std
-        st.session_state["_bb_entry"]  = bb_entry
-        st.session_state["_bb_exit"]   = bb_exit
-
     with st.expander("📊 MACD 필터"):
         use_macd = st.toggle(
             "MACD 필터 사용",
@@ -578,11 +551,6 @@ def _collect_params_dict() -> dict:
         "ma_compare_long":     ma_tl,
         "offset_compare_short": off_ts,
         "offset_compare_long": off_tl,
-        "use_bollinger":       use_bb,
-        "bb_period":           bb_period,
-        "bb_std":              bb_std,
-        "bb_entry_type":       bb_entry,
-        "bb_exit_type":        bb_exit,
         "use_macd":            use_macd,
         "macd_fast":           macd_fast,
         "macd_slow":           macd_slow,
@@ -626,11 +594,6 @@ def _collect_params() -> StrategyParams:
         ma_trend_long      = ma_tl,
         offset_trend_short = off_ts,
         offset_trend_long  = off_tl,
-        use_bollinger      = use_bb,
-        bb_period          = bb_period,
-        bb_std             = bb_std,
-        bb_entry_type      = bb_entry,
-        bb_exit_type       = bb_exit,
         use_macd           = use_macd,
         macd_fast          = macd_fast,
         macd_slow          = macd_slow,
@@ -1121,16 +1084,62 @@ with tab4:
 
     st.divider()
     st.markdown("##### 🤖 AI 탐색 범위 설정")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        ai_use_bb    = st.toggle("볼린저 밴드 포함", value=True,  key="ai_use_bb")
-        ai_use_macd  = st.toggle("MACD 필터 포함",   value=True,  key="ai_use_macd")
-    with col2:
-        ai_use_rsi   = st.toggle("RSI 필터 포함",    value=True,  key="ai_use_rsi")
-        ai_use_trend = st.toggle("추세 필터 포함",    value=True,  key="ai_use_trend")
-    with col3:
-        ai_use_atr   = st.toggle("ATR 손절 포함",    value=True,  key="ai_use_atr")
-        ai_use_mkt   = st.toggle("시장 필터 포함",    value=False, key="ai_use_mkt")
+
+    # ── 추세 필터 (매수/매도 분리) ───────────────────────
+    with st.expander("🔀 추세 필터", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**매수 추세 필터**")
+            ai_trend_buy_mode = st.radio(
+                "매수 추세", ["OFF", "직접 입력", "탐색 포함"],
+                horizontal=True, key="ai_trend_buy_mode")
+            if ai_trend_buy_mode == "직접 입력":
+                st.caption(f"현재 설정: 단기MA {ma_ts}({off_ts}) / 장기MA {ma_tl}({off_tl})")
+        with col2:
+            st.markdown("**매도 역추세 필터**")
+            ai_trend_sell_mode = st.radio(
+                "매도 추세", ["OFF", "직접 입력", "탐색 포함"],
+                horizontal=True, key="ai_trend_sell_mode")
+            if ai_trend_sell_mode == "직접 입력":
+                st.caption(f"현재 설정: 단기MA {ma_ts}({off_ts}) / 장기MA {ma_tl}({off_tl})")
+
+    # ── RSI 필터 ─────────────────────────────────────────
+    with st.expander("📉 RSI 필터"):
+        ai_rsi_mode = st.radio(
+            "RSI 필터", ["OFF", "직접 입력", "탐색 포함"],
+            horizontal=True, key="ai_rsi_mode")
+        if ai_rsi_mode == "직접 입력":
+            st.caption(f"현재 설정: 기간 {rsi_period}, 범위 {rsi_min}~{rsi_max}")
+        elif ai_rsi_mode == "탐색 포함":
+            st.caption("탐색 범위: 기간 [7,10,14,21] / 과매수 기준 [60,65,70,75,80]")
+
+    # ── MACD 필터 ────────────────────────────────────────
+    with st.expander("📊 MACD 필터"):
+        ai_macd_mode = st.radio(
+            "MACD 필터", ["OFF", "직접 입력", "탐색 포함"],
+            horizontal=True, key="ai_macd_mode")
+        if ai_macd_mode == "직접 입력":
+            st.caption(f"현재 설정: Fast {macd_fast}, Slow {macd_slow}, Signal {macd_signal} / {macd_mode}")
+        elif ai_macd_mode == "탐색 포함":
+            st.caption("탐색 범위: 사용여부 ON/OFF")
+
+    # ── ATR 손절 ────────────────────────────────────────
+    with st.expander("🛡 ATR 손절"):
+        ai_atr_mode = st.radio(
+            "ATR 손절", ["OFF", "직접 입력", "탐색 포함"],
+            horizontal=True, key="ai_atr_mode")
+        if ai_atr_mode == "직접 입력":
+            st.caption(f"현재 설정: ATR 배수 {atr_mult}")
+        elif ai_atr_mode == "탐색 포함":
+            st.caption("탐색 범위: 배수 [2.0, 2.5, 3.0, 4.0]")
+
+    # ── 시장 필터 ────────────────────────────────────────
+    with st.expander("🌍 시장 필터"):
+        ai_mkt_mode = st.radio(
+            "시장 필터", ["OFF", "직접 입력", "탐색 포함 불가 (ON/OFF만)"],
+            horizontal=True, key="ai_mkt_mode")
+        if ai_mkt_mode != "OFF":
+            st.caption(f"현재 설정: MA {mkt_ma_p}")
 
     st.divider()
     disable_tp = st.checkbox(
@@ -1148,15 +1157,51 @@ with tab4:
             prog_bar.progress(int(cur / total * 100))
             status_ph.caption(f"⏳ Trial {cur}/{total} 완료...")
 
+        # 탐색 공간 구성 - 모드별 처리
+        # 추세 필터
+        use_trend_buy_search  = ai_trend_buy_mode  == "탐색 포함"
+        use_trend_sell_search = ai_trend_sell_mode == "탐색 포함"
+        use_trend_any = use_trend_buy_search or use_trend_sell_search
+
+        if ai_trend_buy_mode  == "직접 입력": p_base.use_trend_buy  = True
+        elif ai_trend_buy_mode  == "OFF":     p_base.use_trend_buy  = False
+        if ai_trend_sell_mode == "직접 입력": p_base.use_trend_sell = True
+        elif ai_trend_sell_mode == "OFF":     p_base.use_trend_sell = False
+
+        # RSI
+        use_rsi_search = ai_rsi_mode == "탐색 포함"
+        if ai_rsi_mode == "직접 입력": p_base.use_rsi_filter = True
+        elif ai_rsi_mode == "OFF":     p_base.use_rsi_filter = False
+
+        # MACD
+        use_macd_search = ai_macd_mode == "탐색 포함"
+        if ai_macd_mode == "직접 입력": p_base.use_macd = True
+        elif ai_macd_mode == "OFF":     p_base.use_macd = False
+
+        # ATR
+        use_atr_search = ai_atr_mode == "탐색 포함"
+        if ai_atr_mode == "직접 입력": p_base.use_atr_stop = True
+        elif ai_atr_mode == "OFF":     p_base.use_atr_stop = False
+
+        # 시장 필터
+        p_base.use_market_filter = (ai_mkt_mode != "OFF")
+
         ss = make_full_search_space(
             ma_choices=None,
-            use_trend=ai_use_trend,
-            use_atr=ai_use_atr,
-            use_rsi=ai_use_rsi,
-            use_bb=ai_use_bb,
-            use_macd=ai_use_macd,
+            use_trend=use_trend_any,
+            use_atr=use_atr_search,
+            use_rsi=use_rsi_search,
+            use_macd=use_macd_search,
         )
-        p_base.use_market_filter = ai_use_mkt
+
+        # 직접 입력 모드는 탐색 공간을 현재값으로 고정
+        if ai_trend_buy_mode  == "직접 입력": ss.use_trend_buy_choices  = ["1"]
+        if ai_trend_sell_mode == "직접 입력": ss.use_trend_sell_choices = ["1"]
+        elif ai_trend_sell_mode == "OFF":      ss.use_trend_sell_choices = ["0"]
+        if ai_trend_buy_mode  == "OFF":        ss.use_trend_buy_choices  = ["0"]
+        if ai_rsi_mode  == "직접 입력": ss.use_rsi_choices  = ["1"]
+        if ai_macd_mode == "직접 입력": ss.use_macd_choices = ["1"]
+        if ai_atr_mode  == "직접 입력": ss.use_atr_stop_choices = ["1"]
 
         with st.spinner("최적화 실행 중... (탐색 횟수가 많을수록 시간이 걸립니다)"):
             opt_df, opt_study = run_optimization(
