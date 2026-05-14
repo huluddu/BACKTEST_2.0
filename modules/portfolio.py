@@ -135,19 +135,42 @@ def run_portfolio_scan(
             # 보유 상태 판단 (마지막 매매 로그 기준)
             hold_status    = "⚪ 미보유"
             buy_price_disp = "-"
+            stop_price_disp = "-"
+            tp_price_disp   = "-"
 
             if result.trade_log:
                 last = result.trade_log[-1]
                 if last["신호"] == "BUY":
                     date_str    = pd.to_datetime(last["날짜"]).strftime("%Y-%m-%d")
                     hold_status = f"🟢 보유중 ({date_str})"
-                    buy_price_disp = f"${last['체결가']:,.2f}"
+                    buy_px      = float(last["체결가"])
+                    buy_price_disp = f"${buy_px:,.2f}"
+
+                    # 손절가 계산
+                    if p.use_atr_stop:
+                        # ATR 근사값: 현재 시점 마지막 ATR 사용
+                        trd_atr = data.get("trd_atr")
+                        if trd_atr is not None and len(trd_atr) > 0:
+                            last_atr = float(trd_atr[~np.isnan(trd_atr)][-1]) if np.any(~np.isnan(trd_atr)) else 0
+                            if last_atr > 0:
+                                stop_px = buy_px - last_atr * p.atr_multiplier
+                                stop_price_disp = f"${stop_px:,.2f} (ATR≈)"
+                    elif p.stop_loss_pct > 0:
+                        stop_px = buy_px * (1 - p.stop_loss_pct / 100)
+                        stop_price_disp = f"${stop_px:,.2f} (-{p.stop_loss_pct:.0f}%)"
+
+                    # 익절가 계산
+                    if p.take_profit_pct > 0:
+                        tp_px = buy_px * (1 + p.take_profit_pct / 100)
+                        tp_price_disp = f"${tp_px:,.2f} (+{p.take_profit_pct:.0f}%)"
 
             rows.append({
                 "전략명":     name,
                 "티커":       p.trade_ticker,
                 "보유여부":   hold_status,
                 "매수가":     buy_price_disp,
+                "손절가":     stop_price_disp,
+                "익절가":     tp_price_disp,
                 "오늘신호":   today_sig["status"],
                 "수익률(%)":  f"{result.total_return_pct}%",
                 "B&H(%)":     f"{result.bh_return_pct}%",
@@ -169,7 +192,9 @@ def run_portfolio_scan(
 def _error_row(name: str, ticker: str, error: str) -> dict:
     return {
         "전략명": name, "티커": ticker,
-        "보유여부": "❌ 에러", "매수가": "-", "오늘신호": error,
+        "보유여부": "❌ 에러", "매수가": "-",
+        "손절가": "-", "익절가": "-",
+        "오늘신호": error,
         "수익률(%)": "-", "B&H(%)": "-", "MDD(%)": "-",
         "승률(%)": "-", "PF": "-", "매매횟수": 0,
     }
