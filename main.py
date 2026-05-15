@@ -1180,6 +1180,12 @@ with tab4:
 
     p_base = _collect_params()
 
+    # opt_seed 기본값 설정 (버튼 클릭 전에도 참조 가능하도록)
+    if use_random_seed:
+        opt_seed = st.session_state.get("opt_current_seed", _random.randint(0, 99999))
+    else:
+        opt_seed = st.session_state.get("opt_seed_input", 42)
+
     if st.button("🚀 최적화 시작", type="primary", use_container_width=True):
         # 랜덤 시드 모드면 새 시드 생성 후 저장
         if use_random_seed:
