@@ -994,30 +994,44 @@ with tab3:
     p_used: StrategyParams = get_state("params") or _collect_params()
 
     if result and result.is_valid:
-        # ── 핵심 지표 ─────────────────────────────────
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        metrics = [
-            (col1, "📈 수익률",      format_result_metric(result.total_return_pct),   result.total_return_pct - result.bh_return_pct),
-            (col2, "📊 B&H 수익률", format_result_metric(result.bh_return_pct),       None),
-            (col3, "📉 MDD",         format_result_metric(result.mdd_pct),             result.mdd_pct - result.bh_mdd_pct),
-            (col4, "🎯 승률",         format_result_metric(result.win_rate_pct),        None),
-            (col5, "⚡ Profit Factor", f"{result.profit_factor:.2f}",                  None),
-            (col6, "🔄 매매횟수",     f"{result.total_trades}회",                       None),
-        ]
-        for col, label, val, delta in metrics:
-            col.metric(
-                label, val,
-                delta=f"{delta:+.1f}%" if delta is not None else None,
-                delta_color="normal" if delta and delta > 0 else "inverse" if delta and delta < 0 else "off",
-            )
-
-        # 추가 지표
-        col1, col2, col3 = st.columns(3)
+        # ── 핵심 지표 (2줄 배치, HTML 카드) ─────────────
         sr = sharpe_ratio(result.asset_curve)
         cr = calmar_ratio(result.total_return_pct, result.mdd_pct)
-        col1.metric("📐 샤프 비율", f"{sr:.2f}")
-        col2.metric("🏆 Calmar Ratio", f"{cr:.2f}")
-        col3.metric("💰 최종 자산", f"₩{result.asset_curve[-1]:,.0f}")
+
+        def _card(label, value, delta=None):
+            delta_html = ""
+            if delta is not None:
+                color = "#26a69a" if delta > 0 else "#ef5350"
+                sign  = "▲" if delta > 0 else "▼"
+                delta_html = f'<div style="font-size:11px;color:{color}">{sign} {abs(delta):.1f}%p vs B&H</div>'
+            return f"""
+            <div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
+              <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
+              <div style="font-size:16px;font-weight:600;color:#e0e0e0">{value}</div>
+              {delta_html}
+            </div>"""
+
+        row1 = st.columns(4)
+        row2 = st.columns(4)
+
+        cards_r1 = [
+            ("📈 수익률",      format_result_metric(result.total_return_pct), result.total_return_pct - result.bh_return_pct),
+            ("📊 B&H 수익률", format_result_metric(result.bh_return_pct),     None),
+            ("📉 MDD",         format_result_metric(result.mdd_pct),           result.mdd_pct - result.bh_mdd_pct),
+            ("🎯 승률",         format_result_metric(result.win_rate_pct),      None),
+        ]
+        cards_r2 = [
+            ("⚡ Profit Factor", f"{result.profit_factor:.2f}",          None),
+            ("🔄 매매횟수",      f"{result.total_trades}회",               None),
+            ("📐 샤프 비율",     f"{sr:.2f}",                              None),
+            ("💰 최종 자산",     f"₩{result.asset_curve[-1]:,.0f}",       None),
+        ]
+
+        for col, (label, val, delta) in zip(row1, cards_r1):
+            col.markdown(_card(label, val, delta), unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        for col, (label, val, delta) in zip(row2, cards_r2):
+            col.markdown(_card(label, val, delta), unsafe_allow_html=True)
 
         st.divider()
 
@@ -1026,13 +1040,19 @@ with tab3:
         fig_price = _draw_price_chart(result.chart_data, result.trade_log, p_used)
         st.plotly_chart(fig_price, use_container_width=True)
 
+        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
         st.subheader("💹 자산 곡선")
         fig_equity = _draw_equity_chart(result, result.chart_data)
         st.plotly_chart(fig_equity, use_container_width=True)
 
+        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
         st.subheader("🗓 월별 수익률 히트맵")
         fig_heatmap = _draw_monthly_heatmap(result, result.chart_data)
         st.plotly_chart(fig_heatmap, use_container_width=True)
+
+        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
         # ── 매매 내역 ─────────────────────────────────
         st.subheader("📋 매매 내역")
