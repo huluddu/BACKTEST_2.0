@@ -1095,6 +1095,24 @@ with tab4:
         st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
         st.caption(f"**{start_date} ~ {end_date}**")
 
+    # ── 시드 설정 ─────────────────────────────────────────
+    import random as _random
+    col_seed1, col_seed2, col_seed3 = st.columns([1, 2, 1])
+    with col_seed1:
+        use_random_seed = st.toggle("랜덤 시드 (매번 다른 탐색)", value=True, key="opt_random_seed")
+    with col_seed2:
+        if use_random_seed:
+            # 버튼 누를 때마다 새 랜덤 시드 생성해서 표시
+            if "opt_current_seed" not in st.session_state:
+                st.session_state["opt_current_seed"] = _random.randint(0, 99999)
+            opt_seed = st.session_state["opt_current_seed"]
+            st.caption(f"🎲 현재 시드: **{opt_seed}** (최적화 시작 시 자동 변경)")
+        else:
+            opt_seed = st.number_input("시드 번호 직접 입력", min_value=0, max_value=99999,
+                                       value=st.session_state.get("opt_current_seed", 42),
+                                       step=1, key="opt_seed_input")
+            st.caption("💡 같은 시드로 실행하면 동일한 결과 재현 가능")
+
     st.divider()
     st.markdown("##### 🤖 AI 탐색 범위 설정")
 
@@ -1163,6 +1181,13 @@ with tab4:
     p_base = _collect_params()
 
     if st.button("🚀 최적화 시작", type="primary", use_container_width=True):
+        # 랜덤 시드 모드면 새 시드 생성 후 저장
+        if use_random_seed:
+            opt_seed = _random.randint(0, 99999)
+            st.session_state["opt_current_seed"] = opt_seed
+
+        st.info(f"🎲 사용 시드: **{opt_seed}** — 같은 시드로 재실행하면 동일한 결과가 나옵니다.")
+
         prog_bar  = st.progress(0)
         status_ph = st.empty()
 
@@ -1228,6 +1253,7 @@ with tab4:
                 n_trials    = n_trials,
                 target      = opt_target,
                 disable_tp  = disable_tp,
+                seed        = int(opt_seed),
                 progress_cb = _progress,
             )
 
