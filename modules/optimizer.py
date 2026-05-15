@@ -317,7 +317,7 @@ def run_optimization(
     data_test  = _slice_data(data_full, split_idx, n)
 
     # Study 생성
-    sampler = optuna.samplers.TPESampler(seed=42)
+    sampler = optuna.samplers.TPESampler(seed="opt_seed")
     if is_multi:
         study = optuna.create_study(
             directions=["maximize", "minimize"],  # 수익률↑, MDD↓
