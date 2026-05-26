@@ -10,7 +10,6 @@ utils.py
 - 차트 공통 함수 추가 (engine과 분리)
 """
 
-from __future__ import annotations
 
 import streamlit as st
 import pandas as pd
