@@ -3,6 +3,7 @@ pandas
 numpy
 plotly
 yfinance
+finance-datareader
 optuna
 gspread
 google-auth
