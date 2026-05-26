@@ -19,8 +19,6 @@ engine.py
 8. 신호 판단 로직을 _check_buy / _check_sell 함수로 분리
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -102,15 +100,12 @@ class StrategyParams:
     take_profit_pct: float = 0.0  # 0 = 미사용
 
     # ── 매매 규칙 ─────────────────────────────────────────
-    # "priority_buy"  : 매수 신호 우선 (포지션 없으면 매수, 있으면 유지)
-    # "mutual"        : 매수/매도 동시 충족 시 → 매도 우선 후 매수
-    strategy_behavior: str = "priority_sell"  # 기존 "1번" 옵션
     min_hold_days: int     = 0
     initial_cash: float    = 5_000_000.0
 
     # ── 비용 ─────────────────────────────────────────────
-    fee_bps: float  = 25.0   # 수수료 (basis points)
-    slip_bps: float = 1.0    # 슬리피지 (basis points)
+    fee_bps: float  = 25.0
+    slip_bps: float = 1.0
 
 
 @dataclass
@@ -547,10 +542,12 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 hold_days   = 0
                 sold_today  = True
 
-        # ── strategy_behavior 처리 ────────────────────
+        # ── 포지션 상태 기반 매매 처리 ───────────────────
+        # 보유 중 → 매도 조건 체크 (매수 무시)
+        # 미보유  → 매수 조건 체크 (매도 무시)
         if not sold_today and position > 0:
             if sell_cond and hold_days >= p.min_hold_days:
-                exec_price = next_open   # T+1: 다음날 시가 체결
+                exec_price = next_open
                 fill       = _fill_price(exec_price, "sell", p.fee_bps, p.slip_bps)
                 cash       = position * fill
                 trade_log.append(_make_log(
@@ -562,19 +559,6 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 entry_bar   = -1
                 hold_days   = 0
                 sold_today  = True
-
-                if p.strategy_behavior == "mutual" and buy_cond:
-                    exec_price  = next_open
-                    fill        = _fill_price(exec_price, "buy", p.fee_bps, p.slip_bps)
-                    position    = cash / fill
-                    entry_price = exec_price
-                    entry_bar   = i
-                    hold_days   = 0
-                    cash        = 0.0
-                    trade_log.append(_make_log(
-                        base, i, close_today, "BUY", exec_price,
-                        position * close_today, "전략매수(즉시재진입)", buy_msg, False, False
-                    ))
 
         elif not sold_today and position == 0:
             if buy_cond:
