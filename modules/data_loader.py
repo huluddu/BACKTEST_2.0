@@ -268,5 +268,4 @@ def get_fundamental_info(ticker: str) -> dict:
 
    except Exception as e:
         st.toast(f"⚠️ {ticker} 데이터 로드 실패: {e}", icon="⚠️")
-        st.error(f"🚨 디버그용 에러 메시지: {str(e)}") # 👈 앞부분 띄어쓰기가 위아래 줄과 완전히 똑같아야 합니다!
         return EMPTY_DF
