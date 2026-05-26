@@ -141,7 +141,6 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
 
         for attempt in range(3):
             try:
-                # Ticker.history() 우선 시도
                 t  = yf.Ticker(yf_code)
                 df = t.history(
                     start=start_str,
@@ -150,26 +149,38 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
                     actions=False,
                 )
                 if df is not None and not df.empty:
+                    # yfinance 1.x: MultiIndex 컬럼 처리
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = df.columns.get_level_values(0)
-                    df = df.reset_index()
+                    # DatetimeIndex → Date 컬럼으로
+                    if isinstance(df.index, pd.DatetimeIndex):
+                        df = df.reset_index()
+                        df.rename(columns={df.columns[0]: "Date"}, inplace=True)
+                    elif "Datetime" in df.columns:
+                        df.rename(columns={"Datetime": "Date"}, inplace=True)
+                    else:
+                        df = df.reset_index()
+                    # 컬럼명 소문자 → 표준화
+                    df.columns = [c.capitalize() if c.lower() in ["open","high","low","close","volume"] else c for c in df.columns]
                     df = _standardize(df)
                     if not df.empty:
                         return _clip_dates(df, start_date, end_date)
             except Exception as e:
-                if "RateLimit" in str(e) or "Too Many" in str(e):
+                err = str(e)
+                if "RateLimit" in err or "Too Many" in err:
                     time.sleep(3 * (attempt + 1))
                 elif attempt < 2:
                     time.sleep(1)
 
+            # download() fallback
             try:
-                # download() fallback
                 df = yf.download(
                     yf_code,
                     start=start_str,
                     end=end_adj,
                     progress=False,
                     auto_adjust=True,
+                    multi_level_index=False,
                 )
                 if df is not None and not df.empty:
                     if isinstance(df.columns, pd.MultiIndex):
@@ -179,7 +190,8 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
                     if not df.empty:
                         return _clip_dates(df, start_date, end_date)
             except Exception as e:
-                if "RateLimit" in str(e) or "Too Many" in str(e):
+                err = str(e)
+                if "RateLimit" in err or "Too Many" in err:
                     time.sleep(3 * (attempt + 1))
                 elif attempt < 2:
                     time.sleep(1)
