@@ -6,7 +6,6 @@ optimizer.py - Optuna 베이지안 최적화
 - 볼린저 제거
 - Train/Test 없음 (전체 기간)
 """
-from __future__ import annotations
 import copy, numpy as np, pandas as pd, optuna, streamlit as st
 from dataclasses import dataclass, field
 from .engine import StrategyParams, prepare_data, run_backtest
