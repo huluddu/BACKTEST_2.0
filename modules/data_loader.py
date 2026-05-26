@@ -266,6 +266,7 @@ def get_fundamental_info(ticker: str) -> dict:
             "Description":   info.get("longBusinessSummary", "정보 없음") or "정보 없음",
         }
 
-   except Exception as e:
+    except Exception as e:
         st.toast(f"⚠️ {ticker} 데이터 로드 실패: {e}", icon="⚠️")
+        st.error(f"🚨 디버그용 에러 메시지: {str(e)}")
         return EMPTY_DF
