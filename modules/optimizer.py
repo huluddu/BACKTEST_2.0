@@ -175,7 +175,6 @@ def run_optimization(
         start_date, end_date, base_params
     )
     if data_full is None:
-        st.error("데이터 로드 실패")
         return pd.DataFrame(), None
 
     import random as _random
