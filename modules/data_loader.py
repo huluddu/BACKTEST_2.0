@@ -91,8 +91,7 @@ def _standardize(df: pd.DataFrame) -> pd.DataFrame:
 
         return df[REQUIRED_COLS]
 
-    except Exception as e:
-        st.toast(f"⚠️ 데이터 표준화 실패: {e}", icon="⚠️")
+    except Exception:
         return EMPTY_DF
 
 
@@ -113,25 +112,13 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
     """
     주가 데이터 로드.
     FDR → yfinance 순서로 시도. 둘 다 실패하면 EMPTY_DF 반환.
-
-    Args:
-        ticker: 종목 코드 (예: "AAPL", "005930", "SOXL")
-        start_date: 시작일 (date 또는 str)
-        end_date: 종료일 (date 또는 str)
-
-    Returns:
-        표준화된 DataFrame (Date, Open, High, Low, Close, Volume)
-        실패 시 빈 DataFrame (컬럼은 동일하게 유지)
     """
     if not ticker or not str(ticker).strip():
         return EMPTY_DF
 
     ticker = str(ticker).strip().upper()
 
-    # yfinance end는 exclusive라 +1일 필요
-    # 단, 오늘 이후 날짜는 의미없으므로 min(end_date+1, 오늘+1)로 제한
-    # → 장중에 미완성 당일 데이터가 포함되는 것을 방지
-    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow  = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     end_plus1 = (pd.to_datetime(end_date) + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     end_adj   = min(end_plus1, tomorrow)
     start_str = str(start_date)
@@ -144,56 +131,59 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
                 df = _standardize(df)
                 if not df.empty:
                     return _clip_dates(df, start_date, end_date)
-        except Exception as e:
-            st.toast(f"FDR 실패 ({ticker}): {e} → yfinance 시도", icon="ℹ️")
+        except Exception:
+            pass
 
     # ── 2차 시도: yfinance ───────────────────────────────
     if YF_AVAILABLE:
-        try:
-            import time
-            yf_code = f"{ticker}.KS" if ticker.isdigit() else ticker
+        import time
+        yf_code = f"{ticker}.KS" if ticker.isdigit() else ticker
 
-            # Ticker.history() 방식 (1.x에서 rate limit 처리 더 안정적)
-            for attempt in range(3):
-                try:
-                    t = yf.Ticker(yf_code)
-                    df = t.history(
-                        start=start_str,
-                        end=end_adj,
-                        auto_adjust=True,
-                        actions=False,
-                    )
-                    if df is not None and not df.empty:
-                        break
-                    # download 방식 fallback
-                    df = yf.download(
-                        yf_code,
-                        start=start_str,
-                        end=end_adj,
-                        progress=False,
-                        auto_adjust=True,
-                    )
-                    if df is not None and not df.empty:
-                        break
-                except Exception as e:
-                    if "RateLimit" in str(e) or "Too Many" in str(e):
-                        time.sleep(3 * (attempt + 1))
-                    elif attempt < 2:
-                        time.sleep(1)
-                    else:
-                        raise e
+        for attempt in range(3):
+            try:
+                # Ticker.history() 우선 시도
+                t  = yf.Ticker(yf_code)
+                df = t.history(
+                    start=start_str,
+                    end=end_adj,
+                    auto_adjust=True,
+                    actions=False,
+                )
+                if df is not None and not df.empty:
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                    df = df.reset_index()
+                    df = _standardize(df)
+                    if not df.empty:
+                        return _clip_dates(df, start_date, end_date)
+            except Exception as e:
+                if "RateLimit" in str(e) or "Too Many" in str(e):
+                    time.sleep(3 * (attempt + 1))
+                elif attempt < 2:
+                    time.sleep(1)
 
-            if df is not None and not df.empty:
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                df = df.reset_index()
-                df = _standardize(df)
-                if not df.empty:
-                    return _clip_dates(df, start_date, end_date)
-        except Exception as e:
-            st.toast(f"yfinance 실패 ({ticker}): {e}", icon="⚠️")
+            try:
+                # download() fallback
+                df = yf.download(
+                    yf_code,
+                    start=start_str,
+                    end=end_adj,
+                    progress=False,
+                    auto_adjust=True,
+                )
+                if df is not None and not df.empty:
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                    df = df.reset_index()
+                    df = _standardize(df)
+                    if not df.empty:
+                        return _clip_dates(df, start_date, end_date)
+            except Exception as e:
+                if "RateLimit" in str(e) or "Too Many" in str(e):
+                    time.sleep(3 * (attempt + 1))
+                elif attempt < 2:
+                    time.sleep(1)
 
-    st.toast(f"❌ 데이터 로드 완전 실패: {ticker}", icon="❌")
     return EMPTY_DF
 
 
