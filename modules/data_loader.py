@@ -150,17 +150,40 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
     # ── 2차 시도: yfinance ───────────────────────────────
     if YF_AVAILABLE:
         try:
-            # 한국 종목 코드 처리
+            import time
             yf_code = f"{ticker}.KS" if ticker.isdigit() else ticker
-            df = yf.download(
-                yf_code,
-                start=start_str,
-                end=end_adj,
-                progress=False,
-                auto_adjust=True,
-            )
+
+            # Ticker.history() 방식 (1.x에서 rate limit 처리 더 안정적)
+            for attempt in range(3):
+                try:
+                    t = yf.Ticker(yf_code)
+                    df = t.history(
+                        start=start_str,
+                        end=end_adj,
+                        auto_adjust=True,
+                        actions=False,
+                    )
+                    if df is not None and not df.empty:
+                        break
+                    # download 방식 fallback
+                    df = yf.download(
+                        yf_code,
+                        start=start_str,
+                        end=end_adj,
+                        progress=False,
+                        auto_adjust=True,
+                    )
+                    if df is not None and not df.empty:
+                        break
+                except Exception as e:
+                    if "RateLimit" in str(e) or "Too Many" in str(e):
+                        time.sleep(3 * (attempt + 1))
+                    elif attempt < 2:
+                        time.sleep(1)
+                    else:
+                        raise e
+
             if df is not None and not df.empty:
-                # yfinance MultiIndex 컬럼 처리
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
                 df = df.reset_index()
