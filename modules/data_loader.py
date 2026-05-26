@@ -149,9 +149,11 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
                     actions=False,
                 )
                 if df is not None and not df.empty:
+                    # 컬럼명 전체 문자열로 강제 변환 (mixed type 방지)
+                    df.columns = [str(c) for c in df.columns]
                     # yfinance 1.x: MultiIndex 컬럼 처리
                     if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
+                        df.columns = [str(c[0]) for c in df.columns]
                     # DatetimeIndex → Date 컬럼으로
                     if isinstance(df.index, pd.DatetimeIndex):
                         df = df.reset_index()
@@ -183,8 +185,9 @@ def get_data(ticker: str, start_date, end_date) -> pd.DataFrame:
                     multi_level_index=False,
                 )
                 if df is not None and not df.empty:
+                    df.columns = [str(c) for c in df.columns]
                     if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
+                        df.columns = [str(c[0]) for c in df.columns]
                     df = df.reset_index()
                     df = _standardize(df)
                     if not df.empty:
