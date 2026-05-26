@@ -5,7 +5,6 @@ portfolio.py
 Tab2 (PRESETS) 기능 담당.
 """
 
-from __future__ import annotations
 
 import datetime
 import pandas as pd
