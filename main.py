@@ -1072,46 +1072,39 @@ with tab3:
         st.error(f"백테스트 실패: {result.error}")
 
 
-# ══════════════════════════════════════════════════════════
-# Tab 4: 전략 최적화
-# ══════════════════════════════════════════════════════════
 with tab4:
-    st.header("⚡ 전략 최적화 (Optuna 베이지안 AI 풀옵션)")
-    st.caption("전체 분석 기간 기준으로 최적 파라미터를 탐색합니다. 결과의 월간/연간 수익률로 과적합을 직접 검증하세요.")
+    st.header("⚡ 전략 최적화 (2단계 멀티시드)")
+    st.caption("1단계: 축소 공간으로 넓게 탐색 → 2단계: 좁혀진 공간으로 정밀 탐색. 시드를 여러 개 돌려 다양한 전략을 발굴합니다.")
 
     st.divider()
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_trials   = st.number_input("탐색 횟수", min_value=10, max_value=10000, value=100, step=10, key="opt_n_trials")
         opt_target = st.selectbox("최적화 목표", [
             "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
         ], key="opt_target")
+        min_trades   = st.slider("최소 매매 횟수", 1, 30, 5, key="opt_min_trades")
     with col2:
-        min_trades  = st.slider("최소 매매 횟수 (필터)", 1, 30, 5, key="opt_min_trades")
-        max_mdd     = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
-    with col3:
+        max_mdd      = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
         min_win_rate = st.number_input("최소 허용 승률 (%)", min_value=0, max_value=100, value=50, step=5, key="opt_min_win_rate")
+    with col3:
         st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
         st.caption(f"**{start_date} ~ {end_date}**")
 
-    # ── 시드 설정 ─────────────────────────────────────────
-    import random as _random
-    col_seed1, col_seed2, col_seed3 = st.columns([1, 2, 1])
-    with col_seed1:
-        use_random_seed = st.toggle("랜덤 시드 (매번 다른 탐색)", value=True, key="opt_random_seed")
-    with col_seed2:
-        if use_random_seed:
-            # 버튼 누를 때마다 새 랜덤 시드 생성해서 표시
-            if "opt_current_seed" not in st.session_state:
-                st.session_state["opt_current_seed"] = _random.randint(0, 99999)
-            opt_seed = st.session_state["opt_current_seed"]
-            st.caption(f"🎲 현재 시드: **{opt_seed}** (최적화 시작 시 자동 변경)")
-        else:
-            opt_seed = st.number_input("시드 번호 직접 입력", min_value=0, max_value=99999,
-                                       value=st.session_state.get("opt_current_seed", 42),
-                                       step=1, key="opt_seed_input")
-            st.caption("💡 같은 시드로 실행하면 동일한 결과 재현 가능")
+    st.divider()
+    st.markdown("##### 🔍 탐색 설정 (2단계 멀티시드)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**1단계: 넓게 탐색** (축소 공간 MA 9개 × 오프셋 5개)")
+        stage1_trials = st.number_input("1단계 탐색 횟수", min_value=50, max_value=2000, value=200, step=50, key="opt_s1_trials")
+        stage1_seeds  = st.slider("1단계 시드 개수", 1, 10, 3, key="opt_s1_seeds")
+    with col2:
+        st.markdown("**2단계: 정밀 탐색** (1단계 결과 근처 좁혀진 공간)")
+        stage2_trials = st.number_input("2단계 탐색 횟수", min_value=50, max_value=2000, value=100, step=50, key="opt_s2_trials")
+        stage2_seeds  = st.slider("2단계 시드 개수", 1, 10, 3, key="opt_s2_seeds")
+
+    total_est = stage1_trials * stage1_seeds + stage2_trials * stage2_seeds
+    st.info(f"⏱ 총 탐색: **{total_est:,}회** (1단계 {stage1_trials}×{stage1_seeds} + 2단계 {stage2_trials}×{stage2_seeds})")
 
     st.divider()
     st.markdown("##### 🤖 AI 탐색 범위 설정")
@@ -1243,24 +1236,26 @@ with tab4:
             "atr":        _mode(ai_atr_mode),
         }
 
-        with st.spinner("최적화 실행 중... (탐색 횟수가 많을수록 시간이 걸립니다)"):
+        with st.spinner("최적화 실행 중... 1단계 → 2단계 순서로 진행됩니다"):
             opt_df, opt_study = run_optimization(
-                signal_ticker = p_base.signal_ticker,
-                trade_ticker  = p_base.trade_ticker,
-                start_date    = start_date,
-                end_date      = end_date,
-                base_params   = p_base,
-                ss_config     = ss_config,
-                constraints   = OptimizeConstraints(
+                signal_ticker  = p_base.signal_ticker,
+                trade_ticker   = p_base.trade_ticker,
+                start_date     = start_date,
+                end_date       = end_date,
+                base_params    = p_base,
+                ss_config      = ss_config,
+                constraints    = OptimizeConstraints(
                     min_trades   = min_trades,
                     max_mdd      = float(max_mdd) if max_mdd > 0 else 0,
                     min_win_rate = float(min_win_rate),
                 ),
-                n_trials    = n_trials,
-                target      = opt_target,
-                disable_tp  = disable_tp,
-                seed        = int(opt_seed),
-                progress_cb = _progress,
+                stage1_trials  = int(stage1_trials),
+                stage1_seeds   = int(stage1_seeds),
+                stage2_trials  = int(stage2_trials),
+                stage2_seeds   = int(stage2_seeds),
+                target         = opt_target,
+                disable_tp     = disable_tp,
+                progress_cb    = _progress,
             )
 
         prog_bar.empty()
@@ -1280,7 +1275,7 @@ with tab4:
         if is_multi:
             st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. 공격형 ~ 안정형 중 마음에 드는 것을 선택하세요.")
 
-        res_cols   = ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
+        res_cols   = ["단계", "수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"] if "단계" in opt_df.columns else ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
         param_cols = [c for c in opt_df.columns if c not in res_cols]
 
         rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
