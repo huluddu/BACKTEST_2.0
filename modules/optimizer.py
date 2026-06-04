@@ -14,7 +14,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 _MA_FULL     = [1] + list(range(5, 121, 5))    # 25개
 _MA_REDUCED  = [5, 10, 20, 30, 50, 60, 80, 100, 120]  # 9개 (1단계용)
 _OFF_FULL    = [1] + list(range(5, 61, 5))     # 13개
-_OFF_REDUCED = [1, 5, 10, 20, 30]              # 5개 (1단계용)
+_OFF_REDUCED = [1, 5, 10, 20, 30, 45, 60]  # 7개 (1단계용, 전체 범위 커버)
 
 
 @dataclass
