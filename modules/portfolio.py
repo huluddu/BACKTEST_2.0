@@ -203,7 +203,84 @@ def _error_row(name: str, ticker: str, error: str) -> dict:
 # 3. 5/10/15/20년 구간 분석 (Sub-tab 2)
 # ══════════════════════════════════════════════════════════
 
-def run_period_stress_test(
+def _calc_yearly_returns(result, base_df) -> dict:
+    """
+    백테스트 결과에서 연도별 수익률 계산.
+    자산 곡선에서 각 연도 첫날/마지막날 자산가치를 비교.
+    """
+    if not result.is_valid or result.asset_curve is None:
+        return {}
+
+    dates  = pd.to_datetime(base_df["Date"].values)
+    curve  = result.asset_curve
+    if len(dates) != len(curve):
+        return {}
+
+    years = sorted(dates.year.unique())
+    result_dict = {}
+
+    for yr in years:
+        mask = (dates.year == yr)
+        yr_curve = curve[mask]
+        if len(yr_curve) < 2:
+            continue
+        start_val = yr_curve[0]
+        end_val   = yr_curve[-1]
+        if start_val > 0:
+            result_dict[str(yr)] = round((end_val / start_val - 1) * 100, 1)
+
+    return result_dict
+
+
+def run_yearly_returns(
+    presets: dict,
+    start_date=None,
+    end_date=None,
+    progress_placeholder=None,
+) -> pd.DataFrame:
+    """
+    각 전략의 연도별 수익률 히트맵용 DataFrame 반환.
+    행: 전략명, 열: 연도
+    """
+    import datetime as dt
+    today    = dt.date.today()
+    start_d  = start_date or (today - dt.timedelta(days=365 * 10))
+    end_d    = end_date or today
+    total    = len(presets)
+    rows     = []
+
+    for idx, (name, preset_dict) in enumerate(presets.items()):
+        if progress_placeholder:
+            progress_placeholder.progress(
+                int(idx / total * 100),
+                text=f"연도별 분석 중: {name} ({idx+1}/{total})"
+            )
+        try:
+            p      = preset_to_params(preset_dict)
+            data   = prepare_data(p.signal_ticker, p.trade_ticker, p.market_ticker,
+                                  start_d, end_d, p)
+            if data is None:
+                rows.append({"전략명": f"{name} ({p.trade_ticker})"})
+                continue
+
+            result = run_backtest(data, p)
+            yearly = _calc_yearly_returns(result, data["base"])
+            yearly["전략명"] = f"{name} ({p.trade_ticker})"
+            rows.append(yearly)
+
+        except Exception:
+            rows.append({"전략명": f"{name}"})
+
+    if progress_placeholder:
+        progress_placeholder.empty()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).set_index("전략명")
+    # 연도 컬럼 정렬
+    year_cols = sorted([c for c in df.columns if c.isdigit()])
+    return df[year_cols] if year_cols else df
     presets: dict,
     year_list: list = [5, 10, 15, 20],
     progress_placeholder=None,
