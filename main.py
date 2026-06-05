@@ -29,7 +29,7 @@ from modules.optimizer import (
     run_optimization, apply_optimal_params,
 )
 from modules.portfolio import (
-    preset_to_params, run_portfolio_scan, run_period_stress_test,
+    preset_to_params, run_portfolio_scan, run_period_stress_test, run_yearly_returns,
 )
 from modules.utils import (
     save_strategy, load_strategies, delete_strategy,
@@ -912,7 +912,7 @@ with tab2:
 
     presets = get_state("presets")
 
-    sub1, sub2 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교"])
+    sub1, sub2, sub3 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교", "📅 연도별 수익률"])
 
     with sub1:
         if not presets:
@@ -961,6 +961,52 @@ with tab2:
             stress = get_state("stress_result")
             if stress is not None and not stress.empty:
                 st.dataframe(stress, use_container_width=True)
+
+    with sub3:
+        if not presets:
+            st.info("저장된 전략이 없습니다.")
+        else:
+            st.caption("각 전략의 연도별 수익률 (해당 연도 1월 1일 → 12월 31일 자산 변화율)")
+            if st.button("📅 연도별 수익률 분석", type="primary", use_container_width=True):
+                prog = st.progress(0)
+                yearly_df = run_yearly_returns(
+                    presets,
+                    start_date=start_date,
+                    end_date=end_date,
+                    progress_placeholder=prog,
+                )
+                set_state("yearly_result", yearly_df)
+
+            yearly = get_state("yearly_result")
+            if yearly is not None and not yearly.empty:
+                # 색상 스타일 - 양수 초록, 음수 빨강
+                def _color(val):
+                    try:
+                        v = float(val)
+                        if v > 0:   return "color: #26a69a; font-weight:600"
+                        elif v < 0: return "color: #ef5350; font-weight:600"
+                    except: pass
+                    return ""
+
+                styled = yearly.style.map(_color)
+                st.dataframe(styled, use_container_width=True)
+
+                # 연도별 평균 수익률 요약
+                st.divider()
+                st.caption("📊 전략별 연도 평균 / 양수 연도 비율")
+                summary_rows = []
+                for idx in yearly.index:
+                    vals = pd.to_numeric(yearly.loc[idx], errors="coerce").dropna()
+                    if len(vals) > 0:
+                        summary_rows.append({
+                            "전략명":        idx,
+                            "연평균 수익률(%)": round(vals.mean(), 1),
+                            "양수 연도":     f"{(vals > 0).sum()}/{len(vals)}",
+                            "최고 연도":     f"{vals.idxmax()} ({vals.max():.1f}%)",
+                            "최저 연도":     f"{vals.idxmin()} ({vals.min():.1f}%)",
+                        })
+                if summary_rows:
+                    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════
