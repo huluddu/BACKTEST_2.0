@@ -203,20 +203,33 @@ def _error_row(name: str, ticker: str, error: str) -> dict:
 # 3. 5/10/15/20년 구간 분석 (Sub-tab 2)
 # ══════════════════════════════════════════════════════════
 
-def _calc_yearly_returns(result, base_df) -> dict:
+def _calc_yearly_returns(result, base_df=None) -> dict:
     """
     백테스트 결과에서 연도별 수익률 계산.
-    자산 곡선에서 각 연도 첫날/마지막날 자산가치를 비교.
+    asset_curve와 chart_data["base"] 날짜를 매핑.
     """
-    if not result.is_valid or result.asset_curve is None:
+    if not result.is_valid or result.asset_curve is None or len(result.asset_curve) == 0:
         return {}
 
-    dates  = pd.to_datetime(base_df["Date"].values)
-    curve  = result.asset_curve
+    # chart_data의 base 사용 (WARMUP 이후 날짜와 asset_curve가 동일 길이)
+    cd = result.chart_data
+    if cd and "base" in cd:
+        dates = pd.to_datetime(cd["base"]["Date"].values)
+    elif base_df is not None:
+        # fallback: base_df와 asset_curve 길이 맞추기
+        curve_len = len(result.asset_curve)
+        dates = pd.to_datetime(base_df["Date"].values[-curve_len:])
+    else:
+        return {}
+
+    curve = result.asset_curve
     if len(dates) != len(curve):
-        return {}
+        # 길이 불일치 시 짧은 쪽 맞추기
+        n = min(len(dates), len(curve))
+        dates = dates[-n:]
+        curve = curve[-n:]
 
-    years = sorted(dates.year.unique())
+    years = sorted(set(dates.year))
     result_dict = {}
 
     for yr in years:
@@ -264,7 +277,7 @@ def run_yearly_returns(
                 continue
 
             result = run_backtest(data, p)
-            yearly = _calc_yearly_returns(result, data["base"])
+            yearly = _calc_yearly_returns(result)
             yearly["전략명"] = f"{name} ({p.trade_ticker})"
             rows.append(yearly)
 
