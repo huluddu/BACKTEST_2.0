@@ -281,6 +281,9 @@ def run_yearly_returns(
     # 연도 컬럼 정렬
     year_cols = sorted([c for c in df.columns if c.isdigit()])
     return df[year_cols] if year_cols else df
+
+
+def run_period_stress_test(
     presets: dict,
     year_list: list = [5, 10, 15, 20],
     progress_placeholder=None,
