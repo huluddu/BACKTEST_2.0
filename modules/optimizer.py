@@ -76,8 +76,8 @@ def _build_params_from_trial(trial, base_params, ss_config, disable_tp,
     if p.use_trend_buy or p.use_trend_sell:
         p.ma_trend_short     = trial.suggest_categorical("ma_ts",  ma_list)
         p.ma_trend_long      = trial.suggest_categorical("ma_tl",  ma_list)
-        p.offset_trend_short = trial.suggest_categorical("off_ts", off_list)
-        p.offset_trend_long  = trial.suggest_categorical("off_tl", off_list)
+        # 추세 오프셋은 탐색 안 함 - 사이드바 설정값 그대로 사용
+        # (p.offset_trend_short, p.offset_trend_long은 base_params에서 복사된 값 유지)
         if p.ma_trend_short >= p.ma_trend_long:
             raise optuna.TrialPruned()
 
@@ -131,8 +131,7 @@ def _params_from_trial_params(tp, base_params):
     p.use_trend_sell     = tp.get("use_trend_sell", False)
     p.ma_trend_short     = tp.get("ma_ts", 20)
     p.ma_trend_long      = tp.get("ma_tl", 50)
-    p.offset_trend_short = tp.get("off_ts", 1)
-    p.offset_trend_long  = tp.get("off_tl", 1)
+    # 추세 오프셋은 탐색하지 않으므로 base_params 값 유지 (덮어쓰지 않음)
     p.use_atr_stop       = tp.get("use_atr", False)
     p.atr_multiplier     = tp.get("atr_mult", 2.0)
     p.stop_loss_pct      = tp.get("sl", 0.0)
@@ -211,7 +210,6 @@ def _collect_rows(study, data_full, base_params, constraints, target):
             "use_trend_buy": tp.get("use_trend_buy", False),
             "use_trend_sell": tp.get("use_trend_sell", False),
             "ma_trend_short": tp.get("ma_ts"), "ma_trend_long": tp.get("ma_tl"),
-            "offset_trend_short": tp.get("off_ts"), "offset_trend_long": tp.get("off_tl"),
             "use_atr_stop": tp.get("use_atr", False), "atr_multiplier": tp.get("atr_mult"),
             "stop_loss_pct": tp.get("sl"), "take_profit_pct": tp.get("tp", 0.0),
             "use_rsi": tp.get("use_rsi", False), "rsi_period": tp.get("rsi_period"),
