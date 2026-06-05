@@ -117,7 +117,8 @@ def _build_params_from_trial(trial, base_params, ss_config, disable_tp,
     return p
 
 
-def _params_from_trial_params(tp, base_params):
+def _params_from_trial_params(tp, base_params, ss_config=None):
+    """완료된 trial의 params dict → StrategyParams"""
     p = copy.deepcopy(base_params)
     p.ma_buy             = tp.get("ma_buy", 50)
     p.offset_ma_buy      = tp.get("off_ma_buy", 1)
@@ -127,8 +128,17 @@ def _params_from_trial_params(tp, base_params):
     p.offset_ma_sell     = tp.get("off_ma_sell", 1)
     p.offset_cl_sell     = tp.get("off_cl_sell", 1)
     p.sell_operator      = tp.get("sell_op", "<")
-    p.use_trend_buy      = tp.get("use_trend_buy", False)
-    p.use_trend_sell     = tp.get("use_trend_sell", False)
+
+    # use_trend: ss_config 기반으로 결정
+    if ss_config:
+        tbm = ss_config.get("trend_buy",  "off")
+        tsm = ss_config.get("trend_sell", "off")
+        p.use_trend_buy  = (tbm  in ("search", "fixed"))
+        p.use_trend_sell = (tsm in ("search", "fixed"))
+    else:
+        p.use_trend_buy  = tp.get("use_trend_buy", False)
+        p.use_trend_sell = tp.get("use_trend_sell", False)
+
     p.ma_trend_short     = tp.get("ma_ts", 20)
     p.ma_trend_long      = tp.get("ma_tl", 50)
     p.offset_trend_short = tp.get("off_ts", 1)
@@ -186,7 +196,7 @@ def _run_single_study(data_full, base_params, ss_config, constraints,
     return study
 
 
-def _collect_rows(study, data_full, base_params, constraints, target):
+def _collect_rows(study, data_full, base_params, constraints, target, ss_config):
     """study에서 결과 rows 수집"""
     is_multi = (target == "다중 목적 (수익률↑ + MDD↓)")
     trials   = study.best_trials if is_multi else [
@@ -195,7 +205,7 @@ def _collect_rows(study, data_full, base_params, constraints, target):
     rows = []
     for t in trials:
         tp  = t.params
-        p   = _params_from_trial_params(tp, base_params)
+        p   = _params_from_trial_params(tp, base_params, ss_config)
         res = run_backtest(data_full, p)
         if not res.is_valid: continue
         if res.total_trades < constraints.min_trades: continue
@@ -208,8 +218,8 @@ def _collect_rows(study, data_full, base_params, constraints, target):
             "offset_ma_buy": tp.get("off_ma_buy"), "buy_operator": tp.get("buy_op"),
             "ma_sell": tp.get("ma_sell"), "offset_cl_sell": tp.get("off_cl_sell"),
             "offset_ma_sell": tp.get("off_ma_sell"), "sell_operator": tp.get("sell_op"),
-            "use_trend_buy": tp.get("use_trend_buy", False),
-            "use_trend_sell": tp.get("use_trend_sell", False),
+            "use_trend_buy":  p.use_trend_buy,
+            "use_trend_sell": p.use_trend_sell,
             "ma_trend_short": tp.get("ma_ts"), "ma_trend_long": tp.get("ma_tl"),
             "offset_trend_short": tp.get("off_ts"), "offset_trend_long": tp.get("off_tl"),
             "use_atr_stop": tp.get("use_atr", False), "atr_multiplier": tp.get("atr_mult"),
@@ -264,7 +274,7 @@ def run_optimization(
             progress_offset=i * stage1_trials,
             progress_total=total_trials,
         )
-        stage1_rows.extend(_collect_rows(study, data_full, base_params, constraints, target))
+        stage1_rows.extend(_collect_rows(study, data_full, base_params, constraints, target, ss_config))
 
     if not stage1_rows:
         return pd.DataFrame(), None
@@ -305,7 +315,7 @@ def run_optimization(
             progress_offset=stage1_trials * stage1_seeds + i * stage2_trials,
             progress_total=total_trials,
         )
-        stage2_rows.extend(_collect_rows(study, data_full, base_params, constraints, target))
+        stage2_rows.extend(_collect_rows(study, data_full, base_params, constraints, target, ss_config))
 
     # 1단계 + 2단계 합산, 중복 제거 (파라미터 기준), 정렬
     all_rows = stage1_rows + stage2_rows
