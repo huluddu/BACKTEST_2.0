@@ -141,19 +141,9 @@ def prepare_data(
     end_date,
     params: StrategyParams,
 ) -> dict | None:
-    """
-    백테스트에 필요한 모든 데이터와 지표를 사전 계산.
-    캐시되어 동일 조건에서 재실행 시 즉시 반환.
-
-    Returns:
-        {
-            "base": DataFrame (Date, OHLCV + 시장데이터),
-            "sig_indicators": dict (시그널 티커 지표),
-            "trd_indicators": dict (매매 티커 지표),
-            "mkt_ma": ndarray or None,
-        }
-        실패 시 None
-    """
+    # 날짜를 문자열로 정규화해서 캐시 키 안정화
+    start_date = str(start_date)
+    end_date   = str(end_date)
     sig_df = get_data(signal_ticker, start_date, end_date)
     trd_df = get_data(trade_ticker, start_date, end_date)
 
@@ -200,12 +190,14 @@ def prepare_data(
     trd_high  = base["High_trd"].to_numpy(dtype=float)
     trd_low   = base["Low_trd"].to_numpy(dtype=float)
 
-    # 필요한 MA 기간 수집
-    ma_periods = list({
-        params.ma_buy, params.ma_sell,
-        params.ma_trend_short, params.ma_trend_long,
-        params.market_ma_period,
-    })
+    # 필요한 MA 기간 수집 - 최적화 탐색 가능한 모든 MA 기간 포함
+    from .optimizer import _MA_FULL, _MA_REDUCED
+    ma_periods = sorted(set(
+        [params.ma_buy, params.ma_sell,
+         params.ma_trend_short, params.ma_trend_long,
+         params.market_ma_period]
+        + _MA_FULL  # 최적화에서 탐색하는 모든 MA 기간
+    ))
 
     # 시그널 티커 지표
     sig_ind = compute_all(
