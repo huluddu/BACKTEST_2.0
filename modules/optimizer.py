@@ -359,3 +359,172 @@ def apply_optimal_params(row):
     p.stop_loss_pct      = float(row.get("stop_loss_pct", 0.0) or 0.0)
     p.take_profit_pct    = float(row.get("take_profit_pct", 0.0) or 0.0)
     return p
+
+
+def _make_neighbor_list(center: int, half: int, step: int, lo: int, hi: int) -> list:
+    """중심값 ± half 범위의 후보 리스트 생성"""
+    vals = sorted(set(
+        [center] +
+        list(range(max(lo, center - half), min(hi, center + half) + 1, step))
+    ))
+    return [v for v in vals if lo <= v <= hi] or [center]
+
+
+def run_preset_optimization(
+    preset_params: StrategyParams,
+    start_date, end_date,
+    constraints: OptimizeConstraints,
+    ma_half: int   = 15,
+    off_half: int  = 10,
+    sl_range: bool = True,
+    tp_range: bool = True,
+    n_trials: int  = 200,
+    n_seeds: int   = 3,
+    target: str    = "수익률 (%)",
+    disable_tp: bool = False,
+    progress_cb    = None,
+) -> tuple:
+    """
+    등록된 전략 파라미터 근처에서 최적점 탐색.
+    Returns: (결과 DataFrame, 현재 전략 BacktestResult)
+    """
+    p = preset_params
+    is_multi = (target == "다중 목적 (수익률↑ + MDD↓)")
+
+    data_full = prepare_data(
+        p.signal_ticker, p.trade_ticker, p.market_ticker,
+        start_date, end_date, p
+    )
+    if data_full is None:
+        return pd.DataFrame(), None
+
+    current_result = run_backtest(data_full, p)
+
+    ma_buy_list  = _make_neighbor_list(p.ma_buy,  ma_half, 5, 1, 120)
+    ma_sell_list = _make_neighbor_list(p.ma_sell, ma_half, 5, 1, 120)
+    off_center   = int((p.offset_cl_buy + p.offset_ma_buy + p.offset_cl_sell + p.offset_ma_sell) / 4)
+    off_list     = _make_neighbor_list(off_center, off_half, 5, 1, 60)
+
+    total_trials = n_trials * n_seeds
+    all_rows = []
+    seeds = [random.randint(0, 99999) for _ in range(n_seeds)]
+
+    for i, seed in enumerate(seeds):
+        sampler = optuna.samplers.TPESampler(seed=seed)
+        if is_multi:
+            study = optuna.create_study(directions=["maximize", "minimize"], sampler=sampler)
+        else:
+            study = optuna.create_study(direction="maximize", sampler=sampler)
+
+        def objective(trial, _p=p, _mb=ma_buy_list, _ms=ma_sell_list, _off=off_list):
+            try:
+                q = copy.deepcopy(_p)
+                q.ma_buy         = trial.suggest_categorical("ma_buy",     _mb)
+                q.offset_cl_buy  = trial.suggest_categorical("off_cl_buy", _off)
+                q.offset_ma_buy  = trial.suggest_categorical("off_ma_buy", _off)
+                q.buy_operator   = trial.suggest_categorical("buy_op",     list(set([_p.buy_operator, ">", "<"])))
+                q.ma_sell        = trial.suggest_categorical("ma_sell",    _ms)
+                q.offset_cl_sell = trial.suggest_categorical("off_cl_sell",_off)
+                q.offset_ma_sell = trial.suggest_categorical("off_ma_sell",_off)
+                q.sell_operator  = trial.suggest_categorical("sell_op",    list(set([_p.sell_operator, "<", ">", "OFF"])))
+
+                if _p.use_trend_buy or _p.use_trend_sell:
+                    ma_ts = _make_neighbor_list(_p.ma_trend_short, ma_half, 5, 1, 120)
+                    ma_tl = _make_neighbor_list(_p.ma_trend_long,  ma_half, 5, 1, 120)
+                    off_t = _make_neighbor_list(int((_p.offset_trend_short + _p.offset_trend_long)/2), off_half, 5, 1, 60)
+                    q.ma_trend_short     = trial.suggest_categorical("ma_ts",  ma_ts)
+                    q.ma_trend_long      = trial.suggest_categorical("ma_tl",  ma_tl)
+                    q.offset_trend_short = trial.suggest_categorical("off_ts", off_t)
+                    q.offset_trend_long  = trial.suggest_categorical("off_tl", off_t)
+                    if q.ma_trend_short >= q.ma_trend_long:
+                        raise optuna.TrialPruned()
+
+                if sl_range and not _p.use_atr_stop and _p.stop_loss_pct > 0:
+                    sl_lo = max(5.0,  _p.stop_loss_pct - 10)
+                    sl_hi = min(50.0, _p.stop_loss_pct + 10)
+                    q.stop_loss_pct = trial.suggest_float("sl", sl_lo, sl_hi, step=5.0)
+                if tp_range and not disable_tp and _p.take_profit_pct > 0:
+                    tp_lo = max(0.0,   _p.take_profit_pct - 15)
+                    tp_hi = min(100.0, _p.take_profit_pct + 15)
+                    q.take_profit_pct = trial.suggest_float("tp", tp_lo, tp_hi, step=5.0)
+                if disable_tp: q.take_profit_pct = 0.0
+
+                res = run_backtest(data_full, q)
+                if res is None or not res.is_valid: raise optuna.TrialPruned()
+                if res.total_trades < constraints.min_trades: raise optuna.TrialPruned()
+                if (res.win_rate_pct or 0) < constraints.min_win_rate: raise optuna.TrialPruned()
+                if constraints.max_mdd > 0 and abs(res.mdd_pct or 0) > constraints.max_mdd:
+                    raise optuna.TrialPruned()
+
+                ret = float(res.total_return_pct or -999.0)
+                mdd = float(abs(res.mdd_pct or 0))
+                if is_multi:   return ret, mdd
+                elif target == "Profit Factor": return float(min(res.profit_factor or 0, 999.0))
+                elif target == "승률 (%)":      return float(res.win_rate_pct or 0)
+                elif target == "MDD 최소화":    return -mdd
+                else: return ret
+
+            except optuna.TrialPruned: raise
+            except Exception: raise optuna.TrialPruned()
+
+        def _cb(study, trial, _off=i * n_trials):
+            if progress_cb: progress_cb(_off + trial.number + 1, total_trials)
+
+        study.optimize(objective, n_trials=n_trials, callbacks=[_cb], show_progress_bar=False)
+
+        trials = study.best_trials if is_multi else [
+            t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        for t in trials:
+            tp_ = t.params
+            q   = copy.deepcopy(p)
+            q.ma_buy         = tp_.get("ma_buy",     p.ma_buy)
+            q.offset_cl_buy  = tp_.get("off_cl_buy", p.offset_cl_buy)
+            q.offset_ma_buy  = tp_.get("off_ma_buy", p.offset_ma_buy)
+            q.buy_operator   = tp_.get("buy_op",     p.buy_operator)
+            q.ma_sell        = tp_.get("ma_sell",    p.ma_sell)
+            q.offset_cl_sell = tp_.get("off_cl_sell",p.offset_cl_sell)
+            q.offset_ma_sell = tp_.get("off_ma_sell",p.offset_ma_sell)
+            q.sell_operator  = tp_.get("sell_op",    p.sell_operator)
+            if p.use_trend_buy or p.use_trend_sell:
+                q.ma_trend_short     = tp_.get("ma_ts",  p.ma_trend_short)
+                q.ma_trend_long      = tp_.get("ma_tl",  p.ma_trend_long)
+                q.offset_trend_short = tp_.get("off_ts", p.offset_trend_short)
+                q.offset_trend_long  = tp_.get("off_tl", p.offset_trend_long)
+            q.stop_loss_pct   = tp_.get("sl", p.stop_loss_pct)
+            q.take_profit_pct = tp_.get("tp", p.take_profit_pct)
+            if disable_tp: q.take_profit_pct = 0.0
+
+            res = run_backtest(data_full, q)
+            if not res.is_valid: continue
+            if res.total_trades < constraints.min_trades: continue
+            if constraints.max_mdd > 0 and abs(res.mdd_pct or 0) > constraints.max_mdd: continue
+            all_rows.append({
+                "수익률(%)":       res.total_return_pct,
+                "MDD(%)":          res.mdd_pct,
+                "승률(%)":         res.win_rate_pct,
+                "PF":              res.profit_factor,
+                "매매횟수":        res.total_trades,
+                "ma_buy":          tp_.get("ma_buy"),
+                "offset_cl_buy":   tp_.get("off_cl_buy"),
+                "offset_ma_buy":   tp_.get("off_ma_buy"),
+                "buy_operator":    tp_.get("buy_op"),
+                "ma_sell":         tp_.get("ma_sell"),
+                "offset_cl_sell":  tp_.get("off_cl_sell"),
+                "offset_ma_sell":  tp_.get("off_ma_sell"),
+                "sell_operator":   tp_.get("sell_op"),
+                "ma_trend_short":  tp_.get("ma_ts"),
+                "ma_trend_long":   tp_.get("ma_tl"),
+                "stop_loss_pct":   tp_.get("sl"),
+                "take_profit_pct": tp_.get("tp", 0.0),
+            })
+
+    if not all_rows:
+        return pd.DataFrame(), current_result
+
+    df = pd.DataFrame(all_rows)
+    key_cols = ["ma_buy", "ma_sell", "offset_cl_buy", "offset_ma_buy",
+                "offset_cl_sell", "offset_ma_sell", "buy_operator", "sell_operator"]
+    df = df.drop_duplicates(subset=[c for c in key_cols if c in df.columns])
+    df = df.sort_values("수익률(%)", ascending=False).reset_index(drop=True)
+    return df, current_result
