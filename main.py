@@ -26,7 +26,7 @@ from modules.engine import (
 )
 from modules.optimizer import (
     OptimizeConstraints,
-    run_optimization, apply_optimal_params,
+    run_optimization, apply_optimal_params, run_preset_optimization,
 )
 from modules.portfolio import (
     preset_to_params, run_portfolio_scan, run_period_stress_test, run_yearly_returns,
@@ -816,11 +816,12 @@ def _draw_monthly_heatmap(result: BacktestResult, chart_data: dict) -> go.Figure
 # 메인 탭 구성
 # ══════════════════════════════════════════════════════════
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📡 오늘의 시그널",
     "📋 전략 프리셋",
     "🔬 백테스트",
     "⚡ 전략 최적화",
+    "🎯 전략 미세조정",
     "📊 구간 스트레스",
     "📓 매매일지",
 ])
@@ -1399,9 +1400,183 @@ with tab4:
 
 
 # ══════════════════════════════════════════════════════════
-# Tab 5: 구간 스트레스 테스트 (단일 전략)
+# Tab 5: 전략 미세조정
 # ══════════════════════════════════════════════════════════
 with tab5:
+    st.header("🎯 전략 미세조정")
+    st.caption("등록된 전략의 파라미터 근처에서 최적점을 탐색합니다. 과적합 위험이 낮고 기존 전략 로직을 유지합니다.")
+
+    if not presets:
+        st.info("저장된 전략이 없습니다. 먼저 전략을 저장해주세요.")
+    else:
+        st.divider()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fine_preset = st.selectbox(
+                "미세조정할 전략 선택",
+                list(presets.keys()),
+                key="fine_preset_select"
+            )
+        with col2:
+            fine_target = st.selectbox("최적화 목표", [
+                "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
+            ], key="fine_target")
+
+        st.divider()
+        st.markdown("##### 🔍 탐색 범위 설정")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            fine_ma_half  = st.slider("MA 탐색 범위 (±)", 5, 30, 15, 5, key="fine_ma_half")
+            fine_off_half = st.slider("오프셋 탐색 범위 (±)", 5, 30, 10, 5, key="fine_off_half")
+        with col2:
+            fine_trials = st.number_input("시드당 탐색 횟수", 50, 1000, 200, 50, key="fine_trials")
+            fine_seeds  = st.slider("시드 개수", 1, 10, 3, key="fine_seeds")
+        with col3:
+            fine_min_trades  = st.slider("최소 매매 횟수", 1, 30, 5, key="fine_min_trades")
+            fine_max_mdd     = st.number_input("최대 허용 MDD (0=제한없음)", 0, 100, 0, 5, key="fine_max_mdd")
+            fine_min_wr      = st.number_input("최소 승률 (%)", 0, 100, 50, 5, key="fine_min_wr")
+
+        fine_sl = st.checkbox("손절 범위 탐색", value=True, key="fine_sl")
+        fine_tp = st.checkbox("익절 범위 탐색", value=True, key="fine_tp")
+
+        total_fine = fine_trials * fine_seeds
+        st.info(f"⏱ 총 탐색: **{total_fine:,}회** ({fine_trials}회 × {fine_seeds}시드) — 현재 전략 파라미터 근처만 탐색")
+
+        if st.button("🚀 미세조정 시작", type="primary", use_container_width=True, key="fine_btn"):
+            from modules.portfolio import preset_to_params
+            fine_p = preset_to_params(presets[fine_preset])
+
+            prog_bar2  = st.progress(0)
+            status_ph2 = st.empty()
+
+            def _fine_progress(cur, total):
+                prog_bar2.progress(int(cur / total * 100))
+                status_ph2.caption(f"⏳ {cur}/{total} 탐색 완료...")
+
+            with st.spinner("미세조정 중..."):
+                fine_df, fine_current = run_preset_optimization(
+                    preset_params = fine_p,
+                    start_date    = start_date,
+                    end_date      = end_date,
+                    constraints   = OptimizeConstraints(
+                        min_trades   = fine_min_trades,
+                        max_mdd      = float(fine_max_mdd) if fine_max_mdd > 0 else 0,
+                        min_win_rate = float(fine_min_wr),
+                    ),
+                    ma_half    = fine_ma_half,
+                    off_half   = fine_off_half,
+                    sl_range   = fine_sl,
+                    tp_range   = fine_tp,
+                    n_trials   = int(fine_trials),
+                    n_seeds    = int(fine_seeds),
+                    target     = fine_target,
+                    progress_cb= _fine_progress,
+                )
+
+            prog_bar2.empty()
+            status_ph2.empty()
+            set_state("fine_result",  fine_df)
+            set_state("fine_current", fine_current)
+            set_state("fine_preset_name", fine_preset)
+
+        # ── 결과 표시 ─────────────────────────────────────
+        fine_df      = get_state("fine_result")
+        fine_current = get_state("fine_current")
+        fine_name    = get_state("fine_preset_name", "")
+
+        if fine_df is not None and not fine_df.empty and fine_current is not None:
+            st.divider()
+
+            # 현재 전략 vs 최적화 비교
+            st.subheader(f"📊 '{fine_name}' 현재 vs 미세조정 결과")
+
+            def _delta(new, old):
+                if old and old != 0:
+                    d = new - old
+                    sign = "▲" if d > 0 else "▼"
+                    color = "#26a69a" if d > 0 else "#ef5350"
+                    return f'<span style="color:{color}">{sign}{abs(d):.1f}</span>'
+                return "-"
+
+            best = fine_df.iloc[0]
+            comp_data = {
+                "지표": ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"],
+                "현재 전략": [
+                    f"{fine_current.total_return_pct:.1f}",
+                    f"{fine_current.mdd_pct:.1f}",
+                    f"{fine_current.win_rate_pct:.1f}",
+                    f"{fine_current.profit_factor:.2f}",
+                    str(fine_current.total_trades),
+                ],
+                "미세조정 #1": [
+                    f"{best['수익률(%)']:.1f}",
+                    f"{best['MDD(%)']:.1f}",
+                    f"{best['승률(%)']:.1f}",
+                    f"{best['PF']:.2f}",
+                    str(int(best['매매횟수'])),
+                ],
+            }
+            comp_df = pd.DataFrame(comp_data)
+            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+
+            st.divider()
+            res_cols   = ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
+            param_cols = [c for c in fine_df.columns if c not in res_cols]
+
+            ft1, ft2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
+            with ft1:
+                st.dataframe(fine_df[res_cols].head(20), use_container_width=True, hide_index=True)
+            with ft2:
+                st.dataframe(fine_df[param_cols].head(20), use_container_width=True, hide_index=True)
+
+            st.divider()
+            st.subheader("✅ 결과 사이드바 적용")
+            fine_idx = st.selectbox(
+                "적용할 순위",
+                list(range(min(10, len(fine_df)))),
+                format_func=lambda i: (
+                    f"#{i+1}  수익률 {fine_df.iloc[i]['수익률(%)']:.1f}%  |  "
+                    f"MDD {fine_df.iloc[i]['MDD(%)']:.1f}%  |  "
+                    f"승률 {fine_df.iloc[i]['승률(%)']:.1f}%  |  "
+                    f"매매 {int(fine_df.iloc[i]['매매횟수'])}회"
+                ),
+                key="fine_apply_idx"
+            )
+
+            if st.button("✅ 사이드바에 적용", type="primary", use_container_width=True, key="fine_apply_btn"):
+                row = fine_df.iloc[fine_idx]
+                def _si(v, d):
+                    try: return int(float(v))
+                    except: return d
+                def _sf(v, d):
+                    try: return float(v)
+                    except: return d
+
+                st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
+                st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
+                st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
+                st.session_state["_off_ma_buy"]    = _si(row.get("offset_ma_buy"), 1)
+                st.session_state["_off_cl_sell"]   = _si(row.get("offset_cl_sell"), 1)
+                st.session_state["_off_ma_sell"]   = _si(row.get("offset_ma_sell"), 1)
+                st.session_state["_buy_op"]        = str(row.get("buy_operator", ">"))
+                st.session_state["_sell_op"]       = str(row.get("sell_operator", "<"))
+                st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
+                st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
+                st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
+                st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
+                st.session_state["_apply_pending"] = True
+                st.success("✅ 적용 완료! 백테스트 탭에서 확인하세요.")
+                st.rerun()
+
+        elif fine_df is not None:
+            st.warning("유효한 결과가 없습니다. 탐색 범위를 넓히거나 조건을 완화해보세요.")
+
+
+# ══════════════════════════════════════════════════════════
+# Tab 6: 구간 스트레스 테스트 (단일 전략)
+# ══════════════════════════════════════════════════════════
+with tab6:
     st.header("📊 구간 스트레스 테스트")
     st.caption("현재 사이드바 설정 기준으로 5/10/15/20년 구간별 성과를 확인합니다.")
 
@@ -1443,7 +1618,7 @@ with tab5:
 # ══════════════════════════════════════════════════════════
 # Tab 6: 매매일지
 # ══════════════════════════════════════════════════════════
-with tab6:
+with tab7:
     st.header("📓 매매일지")
 
     sub_j1, sub_j2 = st.tabs(["✍️ 기록 추가", "📖 전체 조회"])
