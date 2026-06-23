@@ -1552,7 +1552,11 @@ with tab5:
                 def _sf(v, d):
                     try: return float(v)
                     except: return d
+                def _sb(v, d=False):
+                    if isinstance(v, bool): return v
+                    return str(v).lower() in ["true", "1", "t"]
 
+                # 이평선 / 오프셋
                 st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
                 st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
                 st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
@@ -1561,10 +1565,34 @@ with tab5:
                 st.session_state["_off_ma_sell"]   = _si(row.get("offset_ma_sell"), 1)
                 st.session_state["_buy_op"]        = str(row.get("buy_operator", ">"))
                 st.session_state["_sell_op"]       = str(row.get("sell_operator", "<"))
+                # 추세 필터
+                st.session_state["_use_trend_buy"] = _sb(row.get("use_trend_buy"))
+                st.session_state["_use_trend_sell"]= _sb(row.get("use_trend_sell"))
                 st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
                 st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
+                st.session_state["_off_ts"]        = _si(row.get("offset_trend_short"), 1)
+                st.session_state["_off_tl"]        = _si(row.get("offset_trend_long"), 1)
+                # 손절/익절
                 st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
                 st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
+                st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
+                st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
+                # RSI
+                st.session_state["_use_rsi"]       = _sb(row.get("use_rsi_filter"))
+                st.session_state["_rsi_period"]    = _si(row.get("rsi_period"), 14)
+                rsi_max_v = _si(row.get("rsi_max"), 70)
+                rsi_min_v = _si(row.get("rsi_min"), 30)
+                st.session_state["_rsi_range"]     = (rsi_min_v, rsi_max_v)
+                # MACD
+                st.session_state["_use_macd"]      = _sb(row.get("use_macd"))
+                st.session_state["_macd_fast"]     = _si(row.get("macd_fast"), 12)
+                st.session_state["_macd_slow"]     = _si(row.get("macd_slow"), 26)
+                st.session_state["_macd_signal"]   = _si(row.get("macd_signal"), 9)
+                _macd_mode_v = str(row.get("macd_mode", "히스토그램 양전환"))
+                st.session_state["_macd_mode"]     = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
+                # 시장 필터
+                st.session_state["_use_mkt"]       = _sb(row.get("use_market_filter"))
+                st.session_state["_mkt_ma_p"]      = _si(row.get("market_ma_period"), 200)
                 st.session_state["_apply_pending"] = True
                 st.success("✅ 적용 완료! 백테스트 탭에서 확인하세요.")
                 st.rerun()
