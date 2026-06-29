@@ -823,7 +823,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "⚡ 전략 최적화",
     "🎯 전략 미세조정",
     "📊 구간 스트레스",
-    "📓 매매일지",
+    "♾️ 무한매수 비교",
 ])
 
 
@@ -1646,66 +1646,208 @@ with tab6:
 # ══════════════════════════════════════════════════════════
 # Tab 6: 매매일지
 # ══════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════
+# Tab 7: 무한매수법 vs 내 전략 비교
+# ══════════════════════════════════════════════════════════
 with tab7:
-    st.header("📓 매매일지")
+    from modules.infinite_buy import InfiniteBuyParams, run_infinite_buy
 
-    sub_j1, sub_j2 = st.tabs(["✍️ 기록 추가", "📖 전체 조회"])
+    st.header("♾️ 무한매수법 vs 내 전략 비교")
+    st.caption("라오어의 무한매수법과 현재 사이드바 전략을 동일 기간/종목으로 비교합니다.")
 
-    with sub_j1:
-        col1, col2 = st.columns(2)
-        with col1:
-            j_date   = st.date_input("날짜", value=datetime.date.today(), key="j_date")
-            j_ticker = st.text_input("종목", key="j_ticker")
-            j_signal = st.selectbox("신호", ["BUY", "SELL"], key="j_signal")
-        with col2:
-            j_price  = st.number_input("체결가", min_value=0.0, step=0.01, key="j_price")
-            j_qty    = st.number_input("수량",   min_value=0,   step=1,    key="j_qty")
-            j_memo   = st.text_area("메모", height=68, key="j_memo")
+    st.divider()
 
-        buy_amt  = j_price * j_qty
-        cur_px   = st.number_input("현재가", min_value=0.0, step=0.01, key="j_cur_px")
-        pnl_pct  = ((cur_px - j_price) / j_price * 100) if j_price > 0 else 0.0
-        pnl_sign = "+" if pnl_pct >= 0 else ""
-        st.caption(f"📊 매수금액: ₩{buy_amt:,.0f}  |  평가손익: {pnl_sign}{pnl_pct:.2f}%")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### ♾️ 무한매수법 파라미터")
+        inf_capital  = st.number_input("사이클 원금 (원)", value=5_000_000, step=1_000_000, key="inf_capital")
+        inf_splits   = st.number_input("분할 횟수", min_value=10, max_value=100, value=40, step=5, key="inf_splits")
+        inf_target   = st.number_input("익절 목표 (%)", min_value=1, max_value=50, value=10, step=1, key="inf_target")
+        inf_stop     = st.number_input("손절 기준 (%)", min_value=1, max_value=50, value=10, step=1, key="inf_stop")
+    with col2:
+        st.markdown("##### ℹ️ 무한매수법 규칙 요약")
+        st.markdown("""
+        - 원금을 N등분, 매일 1회차씩 매수
+        - **종가 < 평단**: 1회차 전부 매수
+        - **종가 ≥ 평단**: 0.5회차만 매수 (LOC 근사)
+        - **평단 +목표%** 도달 시 전량 익절
+        - **N회차 소진 시**:
+            - -손절기준% 이내 → 손절 후 재시작
+            - -손절기준% 초과 → **동결(존버)** + 새 사이클 병렬 시작
+        - 동결 포지션은 익절가 도달 시 자동 청산
+        """)
 
-        if st.button("💾 매매일지 저장", type="primary", use_container_width=True):
-            row = {
-                "날짜":       str(j_date),
-                "종목":       j_ticker,
-                "신호":       j_signal,
-                "체결가":     j_price,
-                "수량":       j_qty,
-                "매수금액":   buy_amt,
-                "현재가":     cur_px,
-                "평가손익(%)": f"{pnl_sign}{pnl_pct:.2f}",
-                "메모":       j_memo,
-            }
-            save_journal_row(
-                get_state("sheet_name"),
-                get_state("sheet_tab") + "_일지",
-                row
+    st.divider()
+
+    if st.button("🔄 비교 분석 실행", type="primary", use_container_width=True, key="inf_run"):
+        p_cmp  = _collect_params()
+        ticker = p_cmp.trade_ticker
+
+        with st.spinner(f"데이터 로드 및 분석 중... ({ticker})"):
+            # 동일 데이터 로드
+            cmp_data = prepare_data(
+                p_cmp.signal_ticker, p_cmp.trade_ticker,
+                p_cmp.market_ticker, start_date, end_date, p_cmp
             )
+            if cmp_data is None:
+                st.error("데이터 로드 실패")
+            else:
+                # 내 전략 백테스트
+                my_result = run_backtest(cmp_data, p_cmp)
 
-    with sub_j2:
-        if st.button("📥 일지 불러오기", use_container_width=True):
-            j_df = load_journal(
-                get_state("sheet_name"),
-                get_state("sheet_tab") + "_일지",
-            )
-            set_state("journal_df", j_df)
+                # 무한매수법 백테스트
+                inf_params = InfiniteBuyParams(
+                    initial_capital = float(inf_capital),
+                    n_splits        = int(inf_splits),
+                    target_pct      = float(inf_target),
+                    stop_pct        = float(inf_stop),
+                    fee_bps         = p_cmp.fee_bps,
+                    slip_bps        = p_cmp.slip_bps,
+                )
+                base_df    = cmp_data["base"]
+                trd_close  = cmp_data["trd_close"]
+                trd_open   = cmp_data["trd_open"]
+                trd_high   = cmp_data["trd_high"]
+                trd_low    = cmp_data["trd_low"]
 
-        j_df = get_state("journal_df")
-        if j_df is not None and not j_df.empty:
-            st.dataframe(j_df, use_container_width=True, hide_index=True)
+                # 매매 종목(trade_ticker) 일봉 DataFrame 구성
+                inf_df = pd.DataFrame({
+                    "Date":   base_df["Date"].values,
+                    "Open":   trd_open,
+                    "High":   trd_high,
+                    "Low":    trd_low,
+                    "Close":  trd_close,
+                    "Volume": np.zeros(len(base_df)),
+                })
+                inf_result = run_infinite_buy(inf_df, inf_params)
 
-            # 수익률 요약
+                set_state("inf_result",  inf_result)
+                set_state("my_result_cmp", my_result)
+                set_state("inf_ticker",  ticker)
+
+    # ── 결과 표시 ─────────────────────────────────────────
+    inf_result = get_state("inf_result")
+    my_result  = get_state("my_result_cmp")
+    inf_ticker = get_state("inf_ticker", "")
+
+    if inf_result and my_result:
+        st.divider()
+        st.subheader(f"📊 {inf_ticker} — 비교 결과 ({start_date} ~ {end_date})")
+
+        # 핵심 지표 비교표
+        def _fmt(v, suffix=""):
+            if v is None: return "-"
+            try: return f"{float(v):.1f}{suffix}"
+            except: return str(v)
+
+        comp = {
+            "지표": [
+                "총 수익률 (%)", "MDD (%)", "승률 (%)",
+                "총 매매 / 사이클",
+                "익절 횟수", "손절 횟수", "동결(존버) 현황",
+                "평균 사이클(일)",
+            ],
+            "내 전략": [
+                _fmt(my_result.total_return_pct, "%"),
+                _fmt(my_result.mdd_pct, "%"),
+                _fmt(my_result.win_rate_pct, "%"),
+                str(my_result.total_trades),
+                "-", "-", "-", "-",
+            ],
+            "무한매수법": [
+                _fmt(inf_result.total_return_pct, "%"),
+                _fmt(inf_result.mdd_pct, "%"),
+                _fmt(inf_result.win_rate_pct, "%"),
+                str(inf_result.n_cycles_done),
+                str(inf_result.n_win),
+                str(inf_result.n_loss),
+                f"{inf_result.n_frozen}개 진행중",
+                _fmt(inf_result.avg_cycle_days, "일"),
+            ],
+        }
+        comp_df = pd.DataFrame(comp)
+
+        def _color_row(row):
+            styles = [""] * len(row)
             try:
-                pnl_col = j_df["평가손익(%)"].str.replace("%", "").str.replace("+", "").astype(float)
-                wins = (pnl_col > 0).sum()
-                total = len(pnl_col)
-                avg_pnl = pnl_col.mean()
-                st.info(f"📊 총 {total}건  |  승 {wins}건 / 패 {total-wins}건  |  평균 손익: {avg_pnl:+.2f}%")
-            except Exception:
-                pass
-        elif j_df is not None:
-            st.info("저장된 매매일지가 없습니다.")
+                my_v  = float(str(row["내 전략"]).replace("%","").replace("일",""))
+                inf_v = float(str(row["무한매수법"]).replace("%","").replace("일",""))
+                if row["지표"] in ("총 수익률 (%)", "승률 (%)"):
+                    if my_v > inf_v:
+                        styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                    elif inf_v > my_v:
+                        styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                elif row["지표"] == "MDD (%)":
+                    if my_v > inf_v:  # MDD는 작을수록 좋음 (음수)
+                        styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                    elif inf_v > my_v:
+                        styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+            except: pass
+            return styles
+
+        st.dataframe(
+            comp_df.style.apply(_color_row, axis=1),
+            use_container_width=True, hide_index=True
+        )
+
+        st.divider()
+
+        # 자산 곡선 비교 차트
+        st.subheader("📈 자산 곡선 비교")
+        dates_arr = pd.to_datetime(cmp_data["base"]["Date"].values) if get_state("inf_result") else []
+        n_my  = len(my_result.asset_curve)
+        n_inf = len(inf_result.asset_curve)
+
+        if n_my > 0 and n_inf > 0:
+            import plotly.graph_objects as go
+            n_min = min(n_my, n_inf, len(dates_arr))
+            d_arr = pd.to_datetime(cmp_data["base"]["Date"].values[-n_min:])
+
+            fig = go.Figure()
+            # 내 전략 (정규화: 시작 = 100)
+            my_norm  = my_result.asset_curve[-n_min:]  / my_result.asset_curve[-n_min] * 100
+            inf_norm = inf_result.asset_curve[-n_min:] / inf_result.asset_curve[-n_min] * 100
+
+            fig.add_trace(go.Scatter(
+                x=d_arr, y=my_norm,
+                name="내 전략", line=dict(color="#26a69a", width=2)
+            ))
+            fig.add_trace(go.Scatter(
+                x=d_arr, y=inf_norm,
+                name="무한매수법", line=dict(color="#ff9800", width=2)
+            ))
+            fig.update_layout(
+                height=400, template="plotly_dark",
+                yaxis_title="수익 지수 (시작=100)",
+                legend=dict(orientation="h", y=1.02),
+                margin=dict(l=0, r=0, t=30, b=0),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # 무한매수법 사이클 상세
+        st.divider()
+        st.subheader("♾️ 무한매수법 사이클 상세")
+        if inf_result.cycles:
+            cyc_df = pd.DataFrame([{
+                "사이클": c.cycle_no,
+                "시작일": c.start_date,
+                "종료일": c.end_date,
+                "결과":   c.outcome,
+                "수익률(%)": c.return_pct,
+                "기간(일)": c.days,
+                "평단가": round(c.avg_price, 2),
+                "청산가": round(c.exit_price, 2),
+            } for c in inf_result.cycles])
+
+            def _cyc_color(val):
+                if "익절" in str(val): return "color:#26a69a; font-weight:600"
+                if "손절" in str(val): return "color:#ef5350; font-weight:600"
+                if "동결" in str(val): return "color:#ff9800; font-weight:600"
+                return ""
+
+            st.dataframe(
+                cyc_df.style.map(_cyc_color, subset=["결과"]),
+                use_container_width=True, hide_index=True
+            )
