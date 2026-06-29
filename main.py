@@ -1723,9 +1723,10 @@ with tab7:
                 })
                 inf_result = run_infinite_buy(inf_df, inf_params)
 
-                set_state("inf_result",  inf_result)
+                set_state("inf_result",    inf_result)
                 set_state("my_result_cmp", my_result)
-                set_state("inf_ticker",  ticker)
+                set_state("inf_ticker",    ticker)
+                set_state("cmp_data_cache", cmp_data)
 
     # ── 결과 표시 ─────────────────────────────────────────
     inf_result = get_state("inf_result")
@@ -1796,14 +1797,17 @@ with tab7:
 
         # 자산 곡선 비교 차트
         st.subheader("📈 자산 곡선 비교")
-        dates_arr = pd.to_datetime(cmp_data["base"]["Date"].values) if get_state("inf_result") else []
         n_my  = len(my_result.asset_curve)
         n_inf = len(inf_result.asset_curve)
 
         if n_my > 0 and n_inf > 0:
             import plotly.graph_objects as go
-            n_min = min(n_my, n_inf, len(dates_arr))
-            d_arr = pd.to_datetime(cmp_data["base"]["Date"].values[-n_min:])
+            _cmp_data = get_state("cmp_data_cache")
+            if _cmp_data is None:
+                st.warning("차트 데이터를 불러올 수 없습니다. 다시 실행해주세요.")
+            else:
+                n_min = min(n_my, n_inf, len(_cmp_data["base"]))
+                d_arr = pd.to_datetime(_cmp_data["base"]["Date"].values[-n_min:])
 
             fig = go.Figure()
             # 내 전략 (정규화: 시작 = 100)
