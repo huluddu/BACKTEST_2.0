@@ -831,727 +831,523 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 # Tab 1: 오늘의 시그널
 # ══════════════════════════════════════════════════════════
 with tab1:
-    st.header("📡 오늘의 시그널")
-    st.caption("현재 사이드바 설정 기준으로 최신 신호를 확인합니다.")
+    if tab1.open:
+        st.header("📡 오늘의 시그널")
+        st.caption("현재 사이드바 설정 기준으로 최신 신호를 확인합니다.")
 
-    p = _collect_params()
+        p = _collect_params()
 
-    col_run, col_space = st.columns([1, 3])
-    with col_run:
-        run_signal = st.button("🔍 신호 확인", use_container_width=True, type="primary")
+        col_run, col_space = st.columns([1, 3])
+        with col_run:
+            run_signal = st.button("🔍 신호 확인", use_container_width=True, type="primary")
 
-    if run_signal:
-        with st.spinner("데이터 로드 중..."):
-            data = prepare_data(
-                p.signal_ticker, p.trade_ticker, p.market_ticker,
-                start_date, end_date, p
-            )
+        if run_signal:
+            with st.spinner("데이터 로드 중..."):
+                data = prepare_data(
+                    p.signal_ticker, p.trade_ticker, p.market_ticker,
+                    start_date, end_date, p
+                )
 
-        if data is None:
-            st.error("데이터 로드 실패. 티커와 기간을 확인해주세요.")
-        else:
-            sig = get_today_signal(data, p)
-
-            # 시그널 상태 박스
-            status = sig["status"]
-            if "매수" in status:
-                st.success(f"## {status}")
-            elif "매도" in status:
-                st.warning(f"## {status}")
-            elif "중복" in status:
-                st.error(f"## {status}")
+            if data is None:
+                st.error("데이터 로드 실패. 티커와 기간을 확인해주세요.")
             else:
-                st.info(f"## {status}")
+                sig = get_today_signal(data, p)
 
-            st.caption(
-                f"📅 기준일(종료일): **{end_date}**  |  "
-                f"신호 계산 종가: **{sig['sig_date']}** (오프셋{p.offset_cl_buy})  |  "
-                f"추세: {'📈 상승추세' if sig['trend_up'] else '📉 하락추세'}"
-            )
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### 📈 매수 조건")
-                c = "green" if sig["buy_ok"] else "red"
-                icon = "✅" if sig["buy_ok"] else "❌"
-                st.markdown(f":{c}[{icon} {sig['buy_msg']}]")
-
-            with col2:
-                st.markdown("#### 📉 매도 조건")
-                c = "orange" if sig["sell_ok"] else "gray"
-                icon = "✅" if sig["sell_ok"] else "❌"
-                st.markdown(f":{c}[{icon} {sig['sell_msg']}]")
-
-    # 프리셋 전체 시그널 일람
-    presets = get_state("presets")
-    if presets:
-        st.divider()
-        st.subheader("📋 저장된 전략 시그널 일람")
-        rows = []
-        for name, pd_dict in presets.items():
-            try:
-                pp = preset_to_params(pd_dict)
-                d = prepare_data(pp.signal_ticker, pp.trade_ticker, pp.market_ticker,
-                                 start_date, end_date, pp)
-                if d:
-                    sig = get_today_signal(d, pp)
-                    rows.append({"전략명": name, "티커": pp.trade_ticker, "신호": sig["status"]})
+                # 시그널 상태 박스
+                status = sig["status"]
+                if "매수" in status:
+                    st.success(f"## {status}")
+                elif "매도" in status:
+                    st.warning(f"## {status}")
+                elif "중복" in status:
+                    st.error(f"## {status}")
                 else:
-                    rows.append({"전략명": name, "티커": pp.trade_ticker, "신호": "❌ 데이터 없음"})
-            except Exception:
-                rows.append({"전략명": name, "티커": "?", "신호": "❌ 오류"})
+                    st.info(f"## {status}")
 
-        if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.caption(
+                    f"📅 기준일(종료일): **{end_date}**  |  "
+                    f"신호 계산 종가: **{sig['sig_date']}** (오프셋{p.offset_cl_buy})  |  "
+                    f"추세: {'📈 상승추세' if sig['trend_up'] else '📉 하락추세'}"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("#### 📈 매수 조건")
+                    c = "green" if sig["buy_ok"] else "red"
+                    icon = "✅" if sig["buy_ok"] else "❌"
+                    st.markdown(f":{c}[{icon} {sig['buy_msg']}]")
+
+                with col2:
+                    st.markdown("#### 📉 매도 조건")
+                    c = "orange" if sig["sell_ok"] else "gray"
+                    icon = "✅" if sig["sell_ok"] else "❌"
+                    st.markdown(f":{c}[{icon} {sig['sell_msg']}]")
+
+        # 프리셋 전체 시그널 일람
+        presets = get_state("presets")
+        if presets:
+            st.divider()
+            st.subheader("📋 저장된 전략 시그널 일람")
+            rows = []
+            for name, pd_dict in presets.items():
+                try:
+                    pp = preset_to_params(pd_dict)
+                    d = prepare_data(pp.signal_ticker, pp.trade_ticker, pp.market_ticker,
+                                     start_date, end_date, pp)
+                    if d:
+                        sig = get_today_signal(d, pp)
+                        rows.append({"전략명": name, "티커": pp.trade_ticker, "신호": sig["status"]})
+                    else:
+                        rows.append({"전략명": name, "티커": pp.trade_ticker, "신호": "❌ 데이터 없음"})
+                except Exception:
+                    rows.append({"전략명": name, "티커": "?", "신호": "❌ 오류"})
+
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-# ══════════════════════════════════════════════════════════
-# Tab 2: 전략 프리셋 관리 + 일괄 분석
-# ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════
+    # Tab 2: 전략 프리셋 관리 + 일괄 분석
+    # ══════════════════════════════════════════════════════════
 with tab2:
-    st.header("📋 전략 프리셋")
+    if tab2.open:
+        st.header("📋 전략 프리셋")
 
-    presets = get_state("presets")
+        presets = get_state("presets")
 
-    sub1, sub2, sub3 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교", "📅 연도별 수익률"])
+        sub1, sub2, sub3 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교", "📅 연도별 수익률"])
 
-    with sub1:
-        if not presets:
-            st.info("💡 저장된 전략이 없습니다. 사이드바에서 전략을 저장해주세요.")
-        else:
-            col_scan, col_del = st.columns([2, 1])
-            with col_scan:
-                if st.button("🔄 전체 분석 실행", type="primary", use_container_width=True):
+        with sub1:
+            if not presets:
+                st.info("💡 저장된 전략이 없습니다. 사이드바에서 전략을 저장해주세요.")
+            else:
+                col_scan, col_del = st.columns([2, 1])
+                with col_scan:
+                    if st.button("🔄 전체 분석 실행", type="primary", use_container_width=True):
+                        prog = st.progress(0)
+                        scan_df = run_portfolio_scan(presets, start_date, end_date,
+                                                    progress_placeholder=prog)
+                        set_state("scan_result", scan_df)
+
+                scan_result = get_state("scan_result")
+                if scan_result is not None and not scan_result.empty:
+                    st.dataframe(
+                        scan_result.style.map(
+                            lambda v: "color: #26a69a" if "매수" in str(v) else
+                                      "color: #ef5350" if "매도" in str(v) else "",
+                            subset=["오늘신호"]
+                        ),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                # 전략 삭제
+                with col_del:
+                    del_name = st.selectbox("삭제할 전략", [""] + list(presets.keys()), key="del_select")
+                    if st.button("🗑️ 삭제", use_container_width=True):
+                        if del_name:
+                            presets.pop(del_name, None)
+                            set_state("presets", presets)
+                            delete_strategy(
+                                get_state("sheet_name"), get_state("sheet_tab"), del_name
+                            )
+                            st.rerun()
+
+        with sub2:
+            if not presets:
+                st.info("저장된 전략이 없습니다.")
+            else:
+                if st.button("📊 구간별 성과 분석", type="primary", use_container_width=True):
                     prog = st.progress(0)
-                    scan_df = run_portfolio_scan(presets, start_date, end_date,
-                                                progress_placeholder=prog)
-                    set_state("scan_result", scan_df)
+                    stress_df = run_period_stress_test(presets, progress_placeholder=prog)
+                    set_state("stress_result", stress_df)
 
-            scan_result = get_state("scan_result")
-            if scan_result is not None and not scan_result.empty:
+                stress = get_state("stress_result")
+                if stress is not None and not stress.empty:
+                    st.dataframe(stress, use_container_width=True)
+
+        with sub3:
+            if not presets:
+                st.info("저장된 전략이 없습니다.")
+            else:
+                st.caption("각 전략의 연도별 수익률 (해당 연도 1월 1일 → 12월 31일 자산 변화율)")
+                if st.button("📅 연도별 수익률 분석", type="primary", use_container_width=True):
+                    prog = st.progress(0)
+                    yearly_df = run_yearly_returns(
+                        presets,
+                        start_date=start_date,
+                        end_date=end_date,
+                        progress_placeholder=prog,
+                    )
+                    set_state("yearly_result", yearly_df)
+
+                yearly = get_state("yearly_result")
+                if yearly is not None and not yearly.empty:
+                    # 색상 스타일 - 양수 초록, 음수 빨강
+                    def _color(val):
+                        try:
+                            v = float(val)
+                            if v > 0:   return "color: #26a69a; font-weight:600"
+                            elif v < 0: return "color: #ef5350; font-weight:600"
+                        except: pass
+                        return ""
+
+                    styled = yearly.style.map(_color)
+                    st.dataframe(styled, use_container_width=True)
+
+                    # 연도별 평균 수익률 요약
+                    st.divider()
+                    st.caption("📊 전략별 연도 평균 / 양수 연도 비율")
+                    summary_rows = []
+                    for idx in yearly.index:
+                        vals = pd.to_numeric(yearly.loc[idx], errors="coerce").dropna()
+                        if len(vals) > 0:
+                            summary_rows.append({
+                                "전략명":        idx,
+                                "연평균 수익률(%)": round(vals.mean(), 1),
+                                "양수 연도":     f"{(vals > 0).sum()}/{len(vals)}",
+                                "최고 연도":     f"{vals.idxmax()} ({vals.max():.1f}%)",
+                                "최저 연도":     f"{vals.idxmin()} ({vals.min():.1f}%)",
+                            })
+                    if summary_rows:
+                        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+
+    # ══════════════════════════════════════════════════════════
+    # Tab 3: 백테스트
+    # ══════════════════════════════════════════════════════════
+with tab3:
+    if tab3.open:
+        st.header("🔬 백테스트")
+
+        p = _collect_params()
+
+        run_bt = st.button("▶️ 백테스트 실행", type="primary", use_container_width=True)
+
+        if run_bt:
+            with st.spinner("데이터 준비 중..."):
+                data = prepare_data(
+                    p.signal_ticker, p.trade_ticker, p.market_ticker,
+                    start_date, end_date, p
+                )
+
+            if data is None:
+                st.error("데이터 로드 실패. 티커와 기간을 확인해주세요.")
+            else:
+                with st.spinner("백테스트 실행 중..."):
+                    result = run_backtest(data, p)
+                set_state("result", result)
+                set_state("data",   data)
+                set_state("params", p)
+
+        result: BacktestResult = get_state("result")
+        data   = get_state("data")
+        p_used: StrategyParams = get_state("params") or _collect_params()
+
+        if result and result.is_valid:
+            # ── 핵심 지표 (2줄 배치, HTML 카드) ─────────────
+            sr = sharpe_ratio(result.asset_curve)
+            cr = calmar_ratio(result.total_return_pct, result.mdd_pct)
+
+            def _card(label, value, delta=None):
+                delta_html = ""
+                if delta is not None:
+                    color = "#26a69a" if delta > 0 else "#ef5350"
+                    sign  = "▲" if delta > 0 else "▼"
+                    delta_html = f'<div style="font-size:11px;color:{color}">{sign} {abs(delta):.1f}%p vs B&H</div>'
+                return f"""
+                <div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
+                  <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
+                  <div style="font-size:16px;font-weight:600;color:#e0e0e0">{value}</div>
+                  {delta_html}
+                </div>"""
+
+            row1 = st.columns(4)
+            row2 = st.columns(4)
+
+            cards_r1 = [
+                ("📈 수익률",      format_result_metric(result.total_return_pct), result.total_return_pct - result.bh_return_pct),
+                ("📊 B&H 수익률", format_result_metric(result.bh_return_pct),     None),
+                ("📉 MDD",         format_result_metric(result.mdd_pct),           result.mdd_pct - result.bh_mdd_pct),
+                ("🎯 승률",         format_result_metric(result.win_rate_pct),      None),
+            ]
+            cards_r2 = [
+                ("⚡ Profit Factor", f"{result.profit_factor:.2f}",          None),
+                ("🔄 매매횟수",      f"{result.total_trades}회",               None),
+                ("📐 샤프 비율",     f"{sr:.2f}",                              None),
+                ("💰 최종 자산",     f"₩{result.asset_curve[-1]:,.0f}",       None),
+            ]
+
+            for col, (label, val, delta) in zip(row1, cards_r1):
+                col.markdown(_card(label, val, delta), unsafe_allow_html=True)
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            for col, (label, val, delta) in zip(row2, cards_r2):
+                col.markdown(_card(label, val, delta), unsafe_allow_html=True)
+
+            st.divider()
+
+            # ── 차트 ─────────────────────────────────────
+            st.subheader("📈 가격 & 시그널")
+            fig_price = _draw_price_chart(result.chart_data, result.trade_log, p_used)
+            st.plotly_chart(fig_price, use_container_width=True)
+
+            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+            st.subheader("💹 자산 곡선")
+            fig_equity = _draw_equity_chart(result, result.chart_data)
+            st.plotly_chart(fig_equity, use_container_width=True)
+
+            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+            st.subheader("🗓 월별 수익률 히트맵")
+            fig_heatmap = _draw_monthly_heatmap(result, result.chart_data)
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+
+            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+            # ── 매매 내역 ─────────────────────────────────
+            st.subheader("📋 매매 내역")
+            if result.trade_log:
+                log_df = pd.DataFrame(result.trade_log)
+                log_df["날짜"] = pd.to_datetime(log_df["날짜"]).dt.strftime("%Y-%m-%d")
                 st.dataframe(
-                    scan_result.style.map(
-                        lambda v: "color: #26a69a" if "매수" in str(v) else
-                                  "color: #ef5350" if "매도" in str(v) else "",
-                        subset=["오늘신호"]
+                    log_df.style.map(
+                        lambda v: "color: #26a69a; font-weight:bold" if v == "BUY" else
+                                  "color: #ef5350; font-weight:bold" if v == "SELL" else "",
+                        subset=["신호"]
                     ),
                     use_container_width=True, hide_index=True,
                 )
 
-            # 전략 삭제
-            with col_del:
-                del_name = st.selectbox("삭제할 전략", [""] + list(presets.keys()), key="del_select")
-                if st.button("🗑️ 삭제", use_container_width=True):
-                    if del_name:
-                        presets.pop(del_name, None)
-                        set_state("presets", presets)
-                        delete_strategy(
-                            get_state("sheet_name"), get_state("sheet_tab"), del_name
-                        )
-                        st.rerun()
-
-    with sub2:
-        if not presets:
-            st.info("저장된 전략이 없습니다.")
-        else:
-            if st.button("📊 구간별 성과 분석", type="primary", use_container_width=True):
-                prog = st.progress(0)
-                stress_df = run_period_stress_test(presets, progress_placeholder=prog)
-                set_state("stress_result", stress_df)
-
-            stress = get_state("stress_result")
-            if stress is not None and not stress.empty:
-                st.dataframe(stress, use_container_width=True)
-
-    with sub3:
-        if not presets:
-            st.info("저장된 전략이 없습니다.")
-        else:
-            st.caption("각 전략의 연도별 수익률 (해당 연도 1월 1일 → 12월 31일 자산 변화율)")
-            if st.button("📅 연도별 수익률 분석", type="primary", use_container_width=True):
-                prog = st.progress(0)
-                yearly_df = run_yearly_returns(
-                    presets,
-                    start_date=start_date,
-                    end_date=end_date,
-                    progress_placeholder=prog,
-                )
-                set_state("yearly_result", yearly_df)
-
-            yearly = get_state("yearly_result")
-            if yearly is not None and not yearly.empty:
-                # 색상 스타일 - 양수 초록, 음수 빨강
-                def _color(val):
-                    try:
-                        v = float(val)
-                        if v > 0:   return "color: #26a69a; font-weight:600"
-                        elif v < 0: return "color: #ef5350; font-weight:600"
-                    except: pass
-                    return ""
-
-                styled = yearly.style.map(_color)
-                st.dataframe(styled, use_container_width=True)
-
-                # 연도별 평균 수익률 요약
-                st.divider()
-                st.caption("📊 전략별 연도 평균 / 양수 연도 비율")
-                summary_rows = []
-                for idx in yearly.index:
-                    vals = pd.to_numeric(yearly.loc[idx], errors="coerce").dropna()
-                    if len(vals) > 0:
-                        summary_rows.append({
-                            "전략명":        idx,
-                            "연평균 수익률(%)": round(vals.mean(), 1),
-                            "양수 연도":     f"{(vals > 0).sum()}/{len(vals)}",
-                            "최고 연도":     f"{vals.idxmax()} ({vals.max():.1f}%)",
-                            "최저 연도":     f"{vals.idxmin()} ({vals.min():.1f}%)",
-                        })
-                if summary_rows:
-                    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-
-
-# ══════════════════════════════════════════════════════════
-# Tab 3: 백테스트
-# ══════════════════════════════════════════════════════════
-with tab3:
-    st.header("🔬 백테스트")
-
-    p = _collect_params()
-
-    run_bt = st.button("▶️ 백테스트 실행", type="primary", use_container_width=True)
-
-    if run_bt:
-        with st.spinner("데이터 준비 중..."):
-            data = prepare_data(
-                p.signal_ticker, p.trade_ticker, p.market_ticker,
-                start_date, end_date, p
-            )
-
-        if data is None:
-            st.error("데이터 로드 실패. 티커와 기간을 확인해주세요.")
-        else:
-            with st.spinner("백테스트 실행 중..."):
-                result = run_backtest(data, p)
-            set_state("result", result)
-            set_state("data",   data)
-            set_state("params", p)
-
-    result: BacktestResult = get_state("result")
-    data   = get_state("data")
-    p_used: StrategyParams = get_state("params") or _collect_params()
-
-    if result and result.is_valid:
-        # ── 핵심 지표 (2줄 배치, HTML 카드) ─────────────
-        sr = sharpe_ratio(result.asset_curve)
-        cr = calmar_ratio(result.total_return_pct, result.mdd_pct)
-
-        def _card(label, value, delta=None):
-            delta_html = ""
-            if delta is not None:
-                color = "#26a69a" if delta > 0 else "#ef5350"
-                sign  = "▲" if delta > 0 else "▼"
-                delta_html = f'<div style="font-size:11px;color:{color}">{sign} {abs(delta):.1f}%p vs B&H</div>'
-            return f"""
-            <div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
-              <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
-              <div style="font-size:16px;font-weight:600;color:#e0e0e0">{value}</div>
-              {delta_html}
-            </div>"""
-
-        row1 = st.columns(4)
-        row2 = st.columns(4)
-
-        cards_r1 = [
-            ("📈 수익률",      format_result_metric(result.total_return_pct), result.total_return_pct - result.bh_return_pct),
-            ("📊 B&H 수익률", format_result_metric(result.bh_return_pct),     None),
-            ("📉 MDD",         format_result_metric(result.mdd_pct),           result.mdd_pct - result.bh_mdd_pct),
-            ("🎯 승률",         format_result_metric(result.win_rate_pct),      None),
-        ]
-        cards_r2 = [
-            ("⚡ Profit Factor", f"{result.profit_factor:.2f}",          None),
-            ("🔄 매매횟수",      f"{result.total_trades}회",               None),
-            ("📐 샤프 비율",     f"{sr:.2f}",                              None),
-            ("💰 최종 자산",     f"₩{result.asset_curve[-1]:,.0f}",       None),
-        ]
-
-        for col, (label, val, delta) in zip(row1, cards_r1):
-            col.markdown(_card(label, val, delta), unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        for col, (label, val, delta) in zip(row2, cards_r2):
-            col.markdown(_card(label, val, delta), unsafe_allow_html=True)
-
-        st.divider()
-
-        # ── 차트 ─────────────────────────────────────
-        st.subheader("📈 가격 & 시그널")
-        fig_price = _draw_price_chart(result.chart_data, result.trade_log, p_used)
-        st.plotly_chart(fig_price, use_container_width=True)
-
-        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-        st.subheader("💹 자산 곡선")
-        fig_equity = _draw_equity_chart(result, result.chart_data)
-        st.plotly_chart(fig_equity, use_container_width=True)
-
-        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-        st.subheader("🗓 월별 수익률 히트맵")
-        fig_heatmap = _draw_monthly_heatmap(result, result.chart_data)
-        st.plotly_chart(fig_heatmap, use_container_width=True)
-
-        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-        # ── 매매 내역 ─────────────────────────────────
-        st.subheader("📋 매매 내역")
-        if result.trade_log:
-            log_df = pd.DataFrame(result.trade_log)
-            log_df["날짜"] = pd.to_datetime(log_df["날짜"]).dt.strftime("%Y-%m-%d")
-            st.dataframe(
-                log_df.style.map(
-                    lambda v: "color: #26a69a; font-weight:bold" if v == "BUY" else
-                              "color: #ef5350; font-weight:bold" if v == "SELL" else "",
-                    subset=["신호"]
-                ),
-                use_container_width=True, hide_index=True,
-            )
-
-    elif result and result.error:
-        st.error(f"백테스트 실패: {result.error}")
+        elif result and result.error:
+            st.error(f"백테스트 실패: {result.error}")
 
 
 with tab4:
-    st.header("⚡ 전략 최적화 (2단계 멀티시드)")
-    st.caption("1단계: 축소 공간으로 넓게 탐색 → 2단계: 좁혀진 공간으로 정밀 탐색. 시드를 여러 개 돌려 다양한 전략을 발굴합니다.")
-
-    st.divider()
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        opt_target = st.selectbox("최적화 목표", [
-            "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
-        ], key="opt_target")
-        min_trades   = st.slider("최소 매매 횟수", 1, 30, 5, key="opt_min_trades")
-    with col2:
-        max_mdd      = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
-        min_win_rate = st.number_input("최소 허용 승률 (%)", min_value=0, max_value=100, value=50, step=5, key="opt_min_win_rate")
-    with col3:
-        st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
-        st.caption(f"**{start_date} ~ {end_date}**")
-
-    st.divider()
-    st.markdown("##### 🔍 탐색 설정 (2단계 멀티시드)")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**1단계: 넓게 탐색** (축소 공간 MA 9개 × 오프셋 5개)")
-        stage1_trials = st.number_input("1단계 탐색 횟수", min_value=50, max_value=2000, value=200, step=50, key="opt_s1_trials")
-        stage1_seeds  = st.slider("1단계 시드 개수", 1, 10, 3, key="opt_s1_seeds")
-    with col2:
-        st.markdown("**2단계: 정밀 탐색** (1단계 결과 근처 좁혀진 공간)")
-        stage2_trials = st.number_input("2단계 탐색 횟수", min_value=50, max_value=2000, value=100, step=50, key="opt_s2_trials")
-        stage2_seeds  = st.slider("2단계 시드 개수", 1, 10, 3, key="opt_s2_seeds")
-
-    total_est = stage1_trials * stage1_seeds + stage2_trials * stage2_seeds
-    st.info(f"⏱ 총 탐색: **{total_est:,}회** (1단계 {stage1_trials}×{stage1_seeds} + 2단계 {stage2_trials}×{stage2_seeds})")
-
-    st.divider()
-    st.markdown("##### 🤖 AI 탐색 범위 설정")
-
-    # ── 추세 필터 (매수/매도 분리) ───────────────────────
-    with st.expander("🔀 추세 필터", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**매수 추세 필터**")
-            ai_trend_buy_mode = st.radio(
-                "매수 추세", ["OFF", "직접 입력", "탐색 포함"],
-                horizontal=True, key="ai_trend_buy_mode")
-            if ai_trend_buy_mode == "직접 입력":
-                st.caption(f"현재 설정: 단기MA {ma_ts}({off_ts}) / 장기MA {ma_tl}({off_tl})")
-        with col2:
-            st.markdown("**매도 역추세 필터**")
-            ai_trend_sell_mode = st.radio(
-                "매도 추세", ["OFF", "직접 입력", "탐색 포함"],
-                horizontal=True, key="ai_trend_sell_mode")
-            if ai_trend_sell_mode == "직접 입력":
-                st.caption(f"현재 설정: 단기MA {ma_ts}({off_ts}) / 장기MA {ma_tl}({off_tl})")
-
-    # ── RSI 필터 ─────────────────────────────────────────
-    with st.expander("📉 RSI 필터"):
-        ai_rsi_mode = st.radio(
-            "RSI 필터", ["OFF", "직접 입력", "탐색 포함"],
-            horizontal=True, key="ai_rsi_mode")
-        if ai_rsi_mode == "직접 입력":
-            st.caption(f"현재 설정: 기간 {rsi_period}, 범위 {rsi_min}~{rsi_max}")
-        elif ai_rsi_mode == "탐색 포함":
-            st.caption("탐색 범위: 기간 [7,10,14,21] / 과매수 기준 [60,65,70,75,80]")
-
-    # ── MACD 필터 ────────────────────────────────────────
-    with st.expander("📊 MACD 필터"):
-        ai_macd_mode = st.radio(
-            "MACD 필터", ["OFF", "직접 입력", "탐색 포함"],
-            horizontal=True, key="ai_macd_mode")
-        if ai_macd_mode == "직접 입력":
-            st.caption(f"현재 설정: Fast {macd_fast}, Slow {macd_slow}, Signal {macd_signal} / {macd_mode}")
-        elif ai_macd_mode == "탐색 포함":
-            st.caption("탐색 범위: 사용여부 ON/OFF")
-
-    # ── ATR 손절 ────────────────────────────────────────
-    with st.expander("🛡 ATR 손절"):
-        ai_atr_mode = st.radio(
-            "ATR 손절", ["OFF", "직접 입력", "탐색 포함"],
-            horizontal=True, key="ai_atr_mode")
-        if ai_atr_mode == "직접 입력":
-            st.caption(f"현재 설정: ATR 배수 {atr_mult}")
-        elif ai_atr_mode == "탐색 포함":
-            st.caption("탐색 범위: 배수 [2.0, 2.5, 3.0, 4.0]")
-
-    # ── 시장 필터 ────────────────────────────────────────
-    with st.expander("🌍 시장 필터"):
-        ai_mkt_mode = st.radio(
-            "시장 필터", ["OFF", "직접 입력", "탐색 포함 불가 (ON/OFF만)"],
-            horizontal=True, key="ai_mkt_mode")
-        if ai_mkt_mode != "OFF":
-            st.caption(f"현재 설정: MA {mkt_ma_p}")
-
-    st.divider()
-    disable_tp = st.checkbox(
-        "🚫 익절(Take Profit) 탐색 끄기 (0%로 고정, 탐색 속도 향상)",
-        value=False, key="opt_disable_tp"
-    )
-
-    p_base = _collect_params()
-
-    if st.button("🚀 최적화 시작", type="primary", use_container_width=True):
-        prog_bar  = st.progress(0)
-        status_ph = st.empty()
-
-        def _progress(cur, total):
-            prog_bar.progress(int(cur / total * 100))
-            status_ph.caption(f"⏳ {cur}/{total} 완료... (1단계 → 2단계 진행 중)")
-
-        # 탐색 공간 구성 - 모드별 처리
-        # 추세 필터
-        use_trend_buy_search  = ai_trend_buy_mode  == "탐색 포함"
-        use_trend_sell_search = ai_trend_sell_mode == "탐색 포함"
-        use_trend_any = use_trend_buy_search or use_trend_sell_search
-
-        if ai_trend_buy_mode  == "직접 입력": p_base.use_trend_buy  = True
-        elif ai_trend_buy_mode  == "OFF":     p_base.use_trend_buy  = False
-        if ai_trend_sell_mode == "직접 입력": p_base.use_trend_sell = True
-        elif ai_trend_sell_mode == "OFF":     p_base.use_trend_sell = False
-
-        # RSI
-        use_rsi_search = ai_rsi_mode == "탐색 포함"
-        if ai_rsi_mode == "직접 입력": p_base.use_rsi_filter = True
-        elif ai_rsi_mode == "OFF":     p_base.use_rsi_filter = False
-
-        # MACD
-        use_macd_search = ai_macd_mode == "탐색 포함"
-        if ai_macd_mode == "직접 입력": p_base.use_macd = True
-        elif ai_macd_mode == "OFF":     p_base.use_macd = False
-
-        # ATR
-        if ai_atr_mode == "직접 입력": p_base.use_atr_stop = True
-        elif ai_atr_mode == "OFF":     p_base.use_atr_stop = False
-
-        # 시장 필터
-        p_base.use_market_filter = (ai_mkt_mode != "OFF")
-
-        # ss_config: 필터별 모드 dict
-        def _mode(v):
-            if v == "탐색 포함": return "search"
-            if v == "직접 입력": return "fixed"
-            return "off"
-
-        ss_config = {
-            "trend_buy":  _mode(ai_trend_buy_mode),
-            "trend_sell": _mode(ai_trend_sell_mode),
-            "rsi":        _mode(ai_rsi_mode),
-            "macd":       _mode(ai_macd_mode),
-            "atr":        _mode(ai_atr_mode),
-        }
-
-        with st.spinner("최적화 실행 중... 1단계 → 2단계 순서로 진행됩니다"):
-            opt_df, opt_study = run_optimization(
-                signal_ticker  = p_base.signal_ticker,
-                trade_ticker   = p_base.trade_ticker,
-                start_date     = start_date,
-                end_date       = end_date,
-                base_params    = p_base,
-                ss_config      = ss_config,
-                constraints    = OptimizeConstraints(
-                    min_trades   = min_trades,
-                    max_mdd      = float(max_mdd) if max_mdd > 0 else 0,
-                    min_win_rate = float(min_win_rate),
-                ),
-                stage1_trials  = int(stage1_trials),
-                stage1_seeds   = int(stage1_seeds),
-                stage2_trials  = int(stage2_trials),
-                stage2_seeds   = int(stage2_seeds),
-                target         = opt_target,
-                disable_tp     = disable_tp,
-                progress_cb    = _progress,
-            )
-
-        prog_bar.empty()
-        status_ph.empty()
-        set_state("opt_result",      opt_df)
-        set_state("opt_study",       opt_study)
-        set_state("opt_target_used", opt_target)
-
-    # ── 결과 표시 ─────────────────────────────────────────
-    opt_df       = get_state("opt_result")
-    opt_target_u = get_state("opt_target_used", "수익률 (%)")
-    is_multi     = (opt_target_u == "다중 목적 (수익률↑ + MDD↓)")
-
-    if opt_df is not None and not opt_df.empty:
-        label = "Pareto Front 후보" if is_multi else "유효 결과"
-        st.success(f"✅ {len(opt_df)}개 {label} 발견")
-        if is_multi:
-            st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. 공격형 ~ 안정형 중 마음에 드는 것을 선택하세요.")
-
-        res_cols   = ["단계", "수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"] if "단계" in opt_df.columns else ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
-        param_cols = [c for c in opt_df.columns if c not in res_cols]
-
-        rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
-        with rtab1:
-            st.dataframe(opt_df[res_cols].head(20), use_container_width=True, hide_index=True)
-        with rtab2:
-            st.dataframe(opt_df[param_cols].head(20), use_container_width=True, hide_index=True)
+    if tab4.open:
+        st.header("⚡ 전략 최적화 (2단계 멀티시드)")
+        st.caption("1단계: 축소 공간으로 넓게 탐색 → 2단계: 좁혀진 공간으로 정밀 탐색. 시드를 여러 개 돌려 다양한 전략을 발굴합니다.")
 
         st.divider()
-        st.subheader("🏆 최적 파라미터 사이드바 적용")
-        st.caption("적용 버튼을 누르면 사이드바 값이 변경됩니다. 이후 Tab 3에서 백테스트를 실행하세요.")
 
-        top_idx = st.selectbox(
-            "적용할 순위 선택",
-            list(range(min(10, len(opt_df)))),
-            format_func=lambda i: (
-                f"#{i+1}  수익률 {opt_df.iloc[i]['수익률(%)']:.1f}%  |  "
-                f"MDD {opt_df.iloc[i]['MDD(%)']:.1f}%  |  "
-                f"승률 {opt_df.iloc[i]['승률(%)']:.1f}%  |  "
-                f"매매 {int(opt_df.iloc[i]['매매횟수'])}회"
-            ),
-            key="opt_apply_idx",
-        )
-
-        with st.expander("📋 선택된 파라미터 미리보기"):
-            selected_row = opt_df.iloc[top_idx]
-            preview_items = [(k, v) for k, v in selected_row.items() if k in param_cols]
-            pc = st.columns(3)
-            for i, (k, v) in enumerate(preview_items):
-                pc[i % 3].metric(k, v)
-
-        if st.button("✅ 사이드바에 적용하기", type="primary", use_container_width=True, key="opt_apply_btn"):
-            row = opt_df.iloc[top_idx]
-
-            def _si(v, d):
-                try: return int(float(v))
-                except: return d
-            def _sf(v, d):
-                try: return float(v)
-                except: return d
-            def _sb(v, d=False):
-                return str(v).lower() in ["true", "1", "t"]
-
-            st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
-            st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
-            st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
-            st.session_state["_off_ma_buy"]    = _si(row.get("offset_ma_buy"), 1)
-            st.session_state["_off_cl_sell"]   = _si(row.get("offset_cl_sell"), 1)
-            st.session_state["_off_ma_sell"]   = _si(row.get("offset_ma_sell"), 1)
-            st.session_state["_buy_op"]        = str(row.get("buy_operator", ">"))
-            st.session_state["_sell_op"]       = str(row.get("sell_operator", "<"))
-            st.session_state["_use_trend_buy"] = _sb(row.get("use_trend_buy"))
-            st.session_state["_use_trend_sell"]= _sb(row.get("use_trend_sell"))
-            st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
-            st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
-            st.session_state["_off_ts"]        = _si(row.get("offset_trend_short"), 1)
-            st.session_state["_off_tl"]        = _si(row.get("offset_trend_long"), 1)
-            st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
-            st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
-            st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
-            st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
-            # 볼린저 밴드
-            use_bb_val = _sb(row.get("use_bollinger", False))
-            st.session_state["_use_bb"]        = use_bb_val
-            st.session_state["_bb_period"]     = _si(row.get("bb_period"), 20)
-            st.session_state["_bb_std"]        = _sf(row.get("bb_std"), 2.0)
-            st.session_state["_bb_entry"]      = "상단선 돌파 (추세)"
-            st.session_state["_bb_exit"]       = "중심선(MA) 이탈"
-            # RSI 필터
-            use_rsi_val = _sb(row.get("use_rsi", False))
-            st.session_state["_use_rsi"]       = use_rsi_val
-            st.session_state["_rsi_period"]    = _si(row.get("rsi_period"), 14)
-            rsi_max_v = _si(row.get("rsi_max"), 70)
-            st.session_state["_rsi_range"]     = (100 - rsi_max_v, rsi_max_v)
-            # MACD
-            st.session_state["_use_macd"]      = _sb(row.get("use_macd", False))
-            st.session_state["_apply_pending"] = True
-            st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
-            st.rerun()
-
-    elif opt_df is not None:
-        st.warning("유효한 최적화 결과가 없습니다.")
-        st.markdown("""
-        - 탐색 횟수를 늘려보세요
-        - 최소 매매 횟수를 줄여보세요 (5 → 2)
-        - 최대 허용 MDD를 0(제한없음)으로 설정해보세요
-        """)
-
-
-# ══════════════════════════════════════════════════════════
-# Tab 5: 전략 미세조정
-# ══════════════════════════════════════════════════════════
-with tab5:
-    st.header("🎯 전략 미세조정")
-    st.caption("등록된 전략의 파라미터 근처에서 최적점을 탐색합니다. 과적합 위험이 낮고 기존 전략 로직을 유지합니다.")
-
-    if not presets:
-        st.info("저장된 전략이 없습니다. 먼저 전략을 저장해주세요.")
-    else:
-        st.divider()
-
-        col1, col2 = st.columns(2)
-        with col1:
-            fine_preset_list = list(presets.keys())
-            fine_preset = st.selectbox(
-                "미세조정할 전략 선택",
-                fine_preset_list,
-                key="fine_preset_select"
-            )
-            # 전략 선택이 바뀌면 이전 결과 초기화
-            if get_state("fine_preset_prev") != fine_preset:
-                set_state("fine_result",      None)
-                set_state("fine_current",     None)
-                set_state("fine_preset_prev", fine_preset)
-        with col2:
-            fine_target = st.selectbox("최적화 목표", [
-                "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
-            ], key="fine_target")
-
-        st.divider()
-        st.markdown("##### 🔍 탐색 범위 설정")
         col1, col2, col3 = st.columns(3)
         with col1:
-            fine_ma_half  = st.slider("MA 탐색 범위 (±)", 5, 30, 15, 5, key="fine_ma_half")
-            fine_off_half = st.slider("오프셋 탐색 범위 (±)", 5, 30, 10, 5, key="fine_off_half")
+            opt_target = st.selectbox("최적화 목표", [
+                "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
+            ], key="opt_target")
+            min_trades   = st.slider("최소 매매 횟수", 1, 30, 5, key="opt_min_trades")
         with col2:
-            fine_trials = st.number_input("시드당 탐색 횟수", 50, 1000, 200, 50, key="fine_trials")
-            fine_seeds  = st.slider("시드 개수", 1, 10, 3, key="fine_seeds")
+            max_mdd      = st.number_input("최대 허용 MDD (절대값%, 0=제한없음)", min_value=0, max_value=100, value=0, step=5, key="opt_max_mdd")
+            min_win_rate = st.number_input("최소 허용 승률 (%)", min_value=0, max_value=100, value=50, step=5, key="opt_min_win_rate")
         with col3:
-            fine_min_trades  = st.slider("최소 매매 횟수", 1, 30, 5, key="fine_min_trades")
-            fine_max_mdd     = st.number_input("최대 허용 MDD (0=제한없음)", 0, 100, 0, 5, key="fine_max_mdd")
-            fine_min_wr      = st.number_input("최소 승률 (%)", 0, 100, 50, 5, key="fine_min_wr")
+            st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
+            st.caption(f"**{start_date} ~ {end_date}**")
 
-        fine_sl = st.checkbox("손절 범위 탐색", value=True, key="fine_sl")
-        fine_tp = st.checkbox("익절 범위 탐색", value=True, key="fine_tp")
+        st.divider()
+        st.markdown("##### 🔍 탐색 설정 (2단계 멀티시드)")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**1단계: 넓게 탐색** (축소 공간 MA 9개 × 오프셋 5개)")
+            stage1_trials = st.number_input("1단계 탐색 횟수", min_value=50, max_value=2000, value=200, step=50, key="opt_s1_trials")
+            stage1_seeds  = st.slider("1단계 시드 개수", 1, 10, 3, key="opt_s1_seeds")
+        with col2:
+            st.markdown("**2단계: 정밀 탐색** (1단계 결과 근처 좁혀진 공간)")
+            stage2_trials = st.number_input("2단계 탐색 횟수", min_value=50, max_value=2000, value=100, step=50, key="opt_s2_trials")
+            stage2_seeds  = st.slider("2단계 시드 개수", 1, 10, 3, key="opt_s2_seeds")
 
-        total_fine = fine_trials * fine_seeds
-        st.info(f"⏱ 총 탐색: **{total_fine:,}회** ({fine_trials}회 × {fine_seeds}시드) — 현재 전략 파라미터 근처만 탐색")
+        total_est = stage1_trials * stage1_seeds + stage2_trials * stage2_seeds
+        st.info(f"⏱ 총 탐색: **{total_est:,}회** (1단계 {stage1_trials}×{stage1_seeds} + 2단계 {stage2_trials}×{stage2_seeds})")
 
-        if st.button("🚀 미세조정 시작", type="primary", use_container_width=True, key="fine_btn"):
-            from modules.portfolio import preset_to_params
-            fine_p = preset_to_params(presets[fine_preset])
+        st.divider()
+        st.markdown("##### 🤖 AI 탐색 범위 설정")
 
-            prog_bar2  = st.progress(0)
-            status_ph2 = st.empty()
+        # ── 추세 필터 (매수/매도 분리) ───────────────────────
+        with st.expander("🔀 추세 필터", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**매수 추세 필터**")
+                ai_trend_buy_mode = st.radio(
+                    "매수 추세", ["OFF", "직접 입력", "탐색 포함"],
+                    horizontal=True, key="ai_trend_buy_mode")
+                if ai_trend_buy_mode == "직접 입력":
+                    st.caption(f"현재 설정: 단기MA {ma_ts}({off_ts}) / 장기MA {ma_tl}({off_tl})")
+            with col2:
+                st.markdown("**매도 역추세 필터**")
+                ai_trend_sell_mode = st.radio(
+                    "매도 추세", ["OFF", "직접 입력", "탐색 포함"],
+                    horizontal=True, key="ai_trend_sell_mode")
+                if ai_trend_sell_mode == "직접 입력":
+                    st.caption(f"현재 설정: 단기MA {ma_ts}({off_ts}) / 장기MA {ma_tl}({off_tl})")
 
-            def _fine_progress(cur, total):
-                prog_bar2.progress(int(cur / total * 100))
-                status_ph2.caption(f"⏳ {cur}/{total} 탐색 완료...")
+        # ── RSI 필터 ─────────────────────────────────────────
+        with st.expander("📉 RSI 필터"):
+            ai_rsi_mode = st.radio(
+                "RSI 필터", ["OFF", "직접 입력", "탐색 포함"],
+                horizontal=True, key="ai_rsi_mode")
+            if ai_rsi_mode == "직접 입력":
+                st.caption(f"현재 설정: 기간 {rsi_period}, 범위 {rsi_min}~{rsi_max}")
+            elif ai_rsi_mode == "탐색 포함":
+                st.caption("탐색 범위: 기간 [7,10,14,21] / 과매수 기준 [60,65,70,75,80]")
 
-            with st.spinner("미세조정 중..."):
-                fine_df, fine_current = run_preset_optimization(
-                    preset_params = fine_p,
-                    start_date    = start_date,
-                    end_date      = end_date,
-                    constraints   = OptimizeConstraints(
-                        min_trades   = fine_min_trades,
-                        max_mdd      = float(fine_max_mdd) if fine_max_mdd > 0 else 0,
-                        min_win_rate = float(fine_min_wr),
+        # ── MACD 필터 ────────────────────────────────────────
+        with st.expander("📊 MACD 필터"):
+            ai_macd_mode = st.radio(
+                "MACD 필터", ["OFF", "직접 입력", "탐색 포함"],
+                horizontal=True, key="ai_macd_mode")
+            if ai_macd_mode == "직접 입력":
+                st.caption(f"현재 설정: Fast {macd_fast}, Slow {macd_slow}, Signal {macd_signal} / {macd_mode}")
+            elif ai_macd_mode == "탐색 포함":
+                st.caption("탐색 범위: 사용여부 ON/OFF")
+
+        # ── ATR 손절 ────────────────────────────────────────
+        with st.expander("🛡 ATR 손절"):
+            ai_atr_mode = st.radio(
+                "ATR 손절", ["OFF", "직접 입력", "탐색 포함"],
+                horizontal=True, key="ai_atr_mode")
+            if ai_atr_mode == "직접 입력":
+                st.caption(f"현재 설정: ATR 배수 {atr_mult}")
+            elif ai_atr_mode == "탐색 포함":
+                st.caption("탐색 범위: 배수 [2.0, 2.5, 3.0, 4.0]")
+
+        # ── 시장 필터 ────────────────────────────────────────
+        with st.expander("🌍 시장 필터"):
+            ai_mkt_mode = st.radio(
+                "시장 필터", ["OFF", "직접 입력", "탐색 포함 불가 (ON/OFF만)"],
+                horizontal=True, key="ai_mkt_mode")
+            if ai_mkt_mode != "OFF":
+                st.caption(f"현재 설정: MA {mkt_ma_p}")
+
+        st.divider()
+        disable_tp = st.checkbox(
+            "🚫 익절(Take Profit) 탐색 끄기 (0%로 고정, 탐색 속도 향상)",
+            value=False, key="opt_disable_tp"
+        )
+
+        p_base = _collect_params()
+
+        if st.button("🚀 최적화 시작", type="primary", use_container_width=True):
+            prog_bar  = st.progress(0)
+            status_ph = st.empty()
+
+            def _progress(cur, total):
+                prog_bar.progress(int(cur / total * 100))
+                status_ph.caption(f"⏳ {cur}/{total} 완료... (1단계 → 2단계 진행 중)")
+
+            # 탐색 공간 구성 - 모드별 처리
+            # 추세 필터
+            use_trend_buy_search  = ai_trend_buy_mode  == "탐색 포함"
+            use_trend_sell_search = ai_trend_sell_mode == "탐색 포함"
+            use_trend_any = use_trend_buy_search or use_trend_sell_search
+
+            if ai_trend_buy_mode  == "직접 입력": p_base.use_trend_buy  = True
+            elif ai_trend_buy_mode  == "OFF":     p_base.use_trend_buy  = False
+            if ai_trend_sell_mode == "직접 입력": p_base.use_trend_sell = True
+            elif ai_trend_sell_mode == "OFF":     p_base.use_trend_sell = False
+
+            # RSI
+            use_rsi_search = ai_rsi_mode == "탐색 포함"
+            if ai_rsi_mode == "직접 입력": p_base.use_rsi_filter = True
+            elif ai_rsi_mode == "OFF":     p_base.use_rsi_filter = False
+
+            # MACD
+            use_macd_search = ai_macd_mode == "탐색 포함"
+            if ai_macd_mode == "직접 입력": p_base.use_macd = True
+            elif ai_macd_mode == "OFF":     p_base.use_macd = False
+
+            # ATR
+            if ai_atr_mode == "직접 입력": p_base.use_atr_stop = True
+            elif ai_atr_mode == "OFF":     p_base.use_atr_stop = False
+
+            # 시장 필터
+            p_base.use_market_filter = (ai_mkt_mode != "OFF")
+
+            # ss_config: 필터별 모드 dict
+            def _mode(v):
+                if v == "탐색 포함": return "search"
+                if v == "직접 입력": return "fixed"
+                return "off"
+
+            ss_config = {
+                "trend_buy":  _mode(ai_trend_buy_mode),
+                "trend_sell": _mode(ai_trend_sell_mode),
+                "rsi":        _mode(ai_rsi_mode),
+                "macd":       _mode(ai_macd_mode),
+                "atr":        _mode(ai_atr_mode),
+            }
+
+            with st.spinner("최적화 실행 중... 1단계 → 2단계 순서로 진행됩니다"):
+                opt_df, opt_study = run_optimization(
+                    signal_ticker  = p_base.signal_ticker,
+                    trade_ticker   = p_base.trade_ticker,
+                    start_date     = start_date,
+                    end_date       = end_date,
+                    base_params    = p_base,
+                    ss_config      = ss_config,
+                    constraints    = OptimizeConstraints(
+                        min_trades   = min_trades,
+                        max_mdd      = float(max_mdd) if max_mdd > 0 else 0,
+                        min_win_rate = float(min_win_rate),
                     ),
-                    ma_half    = fine_ma_half,
-                    off_half   = fine_off_half,
-                    sl_range   = fine_sl,
-                    tp_range   = fine_tp,
-                    n_trials   = int(fine_trials),
-                    n_seeds    = int(fine_seeds),
-                    target     = fine_target,
-                    progress_cb= _fine_progress,
+                    stage1_trials  = int(stage1_trials),
+                    stage1_seeds   = int(stage1_seeds),
+                    stage2_trials  = int(stage2_trials),
+                    stage2_seeds   = int(stage2_seeds),
+                    target         = opt_target,
+                    disable_tp     = disable_tp,
+                    progress_cb    = _progress,
                 )
 
-            prog_bar2.empty()
-            status_ph2.empty()
-            set_state("fine_result",  fine_df)
-            set_state("fine_current", fine_current)
-            set_state("fine_preset_name", fine_preset)
+            prog_bar.empty()
+            status_ph.empty()
+            set_state("opt_result",      opt_df)
+            set_state("opt_study",       opt_study)
+            set_state("opt_target_used", opt_target)
 
-        # ── 결과 표시 ─────────────────────────────────────
-        fine_df      = get_state("fine_result")
-        fine_current = get_state("fine_current")
-        fine_name    = get_state("fine_preset_name", "")
+        # ── 결과 표시 ─────────────────────────────────────────
+        opt_df       = get_state("opt_result")
+        opt_target_u = get_state("opt_target_used", "수익률 (%)")
+        is_multi     = (opt_target_u == "다중 목적 (수익률↑ + MDD↓)")
 
-        if fine_df is not None and not fine_df.empty and fine_current is not None:
-            st.divider()
+        if opt_df is not None and not opt_df.empty:
+            label = "Pareto Front 후보" if is_multi else "유효 결과"
+            st.success(f"✅ {len(opt_df)}개 {label} 발견")
+            if is_multi:
+                st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. 공격형 ~ 안정형 중 마음에 드는 것을 선택하세요.")
 
-            # 현재 전략 vs 최적화 비교
-            st.subheader(f"📊 '{fine_name}' 현재 vs 미세조정 결과")
+            res_cols   = ["단계", "수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"] if "단계" in opt_df.columns else ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
+            param_cols = [c for c in opt_df.columns if c not in res_cols]
 
-            def _delta(new, old):
-                if old and old != 0:
-                    d = new - old
-                    sign = "▲" if d > 0 else "▼"
-                    color = "#26a69a" if d > 0 else "#ef5350"
-                    return f'<span style="color:{color}">{sign}{abs(d):.1f}</span>'
-                return "-"
-
-            best = fine_df.iloc[0]
-            comp_data = {
-                "지표": ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"],
-                "현재 전략": [
-                    f"{fine_current.total_return_pct:.1f}",
-                    f"{fine_current.mdd_pct:.1f}",
-                    f"{fine_current.win_rate_pct:.1f}",
-                    f"{fine_current.profit_factor:.2f}",
-                    str(fine_current.total_trades),
-                ],
-                "미세조정 #1": [
-                    f"{best['수익률(%)']:.1f}",
-                    f"{best['MDD(%)']:.1f}",
-                    f"{best['승률(%)']:.1f}",
-                    f"{best['PF']:.2f}",
-                    str(int(best['매매횟수'])),
-                ],
-            }
-            comp_df = pd.DataFrame(comp_data)
-            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+            rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
+            with rtab1:
+                st.dataframe(opt_df[res_cols].head(20), use_container_width=True, hide_index=True)
+            with rtab2:
+                st.dataframe(opt_df[param_cols].head(20), use_container_width=True, hide_index=True)
 
             st.divider()
-            res_cols   = ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
-            param_cols = [c for c in fine_df.columns if c not in res_cols]
+            st.subheader("🏆 최적 파라미터 사이드바 적용")
+            st.caption("적용 버튼을 누르면 사이드바 값이 변경됩니다. 이후 Tab 3에서 백테스트를 실행하세요.")
 
-            ft1, ft2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
-            with ft1:
-                st.dataframe(fine_df[res_cols].head(20), use_container_width=True, hide_index=True)
-            with ft2:
-                st.dataframe(fine_df[param_cols].head(20), use_container_width=True, hide_index=True)
-
-            st.divider()
-            st.subheader("✅ 결과 사이드바 적용")
-            fine_idx = st.selectbox(
-                "적용할 순위",
-                list(range(min(10, len(fine_df)))),
+            top_idx = st.selectbox(
+                "적용할 순위 선택",
+                list(range(min(10, len(opt_df)))),
                 format_func=lambda i: (
-                    f"#{i+1}  수익률 {fine_df.iloc[i]['수익률(%)']:.1f}%  |  "
-                    f"MDD {fine_df.iloc[i]['MDD(%)']:.1f}%  |  "
-                    f"승률 {fine_df.iloc[i]['승률(%)']:.1f}%  |  "
-                    f"매매 {int(fine_df.iloc[i]['매매횟수'])}회"
+                    f"#{i+1}  수익률 {opt_df.iloc[i]['수익률(%)']:.1f}%  |  "
+                    f"MDD {opt_df.iloc[i]['MDD(%)']:.1f}%  |  "
+                    f"승률 {opt_df.iloc[i]['승률(%)']:.1f}%  |  "
+                    f"매매 {int(opt_df.iloc[i]['매매횟수'])}회"
                 ),
-                key="fine_apply_idx"
+                key="opt_apply_idx",
             )
 
-            if st.button("✅ 사이드바에 적용", type="primary", use_container_width=True, key="fine_apply_btn"):
-                row = fine_df.iloc[fine_idx]
+            with st.expander("📋 선택된 파라미터 미리보기"):
+                selected_row = opt_df.iloc[top_idx]
+                preview_items = [(k, v) for k, v in selected_row.items() if k in param_cols]
+                pc = st.columns(3)
+                for i, (k, v) in enumerate(preview_items):
+                    pc[i % 3].metric(k, v)
+
+            if st.button("✅ 사이드바에 적용하기", type="primary", use_container_width=True, key="opt_apply_btn"):
+                row = opt_df.iloc[top_idx]
+
                 def _si(v, d):
                     try: return int(float(v))
                     except: return d
@@ -1559,10 +1355,8 @@ with tab5:
                     try: return float(v)
                     except: return d
                 def _sb(v, d=False):
-                    if isinstance(v, bool): return v
                     return str(v).lower() in ["true", "1", "t"]
 
-                # 이평선 / 오프셋
                 st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
                 st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
                 st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
@@ -1571,293 +1365,506 @@ with tab5:
                 st.session_state["_off_ma_sell"]   = _si(row.get("offset_ma_sell"), 1)
                 st.session_state["_buy_op"]        = str(row.get("buy_operator", ">"))
                 st.session_state["_sell_op"]       = str(row.get("sell_operator", "<"))
-                # 추세 필터
                 st.session_state["_use_trend_buy"] = _sb(row.get("use_trend_buy"))
                 st.session_state["_use_trend_sell"]= _sb(row.get("use_trend_sell"))
                 st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
                 st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
                 st.session_state["_off_ts"]        = _si(row.get("offset_trend_short"), 1)
                 st.session_state["_off_tl"]        = _si(row.get("offset_trend_long"), 1)
-                # 손절/익절
                 st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
                 st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
                 st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
                 st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
-                # RSI
-                st.session_state["_use_rsi"]       = _sb(row.get("use_rsi_filter"))
+                # 볼린저 밴드
+                use_bb_val = _sb(row.get("use_bollinger", False))
+                st.session_state["_use_bb"]        = use_bb_val
+                st.session_state["_bb_period"]     = _si(row.get("bb_period"), 20)
+                st.session_state["_bb_std"]        = _sf(row.get("bb_std"), 2.0)
+                st.session_state["_bb_entry"]      = "상단선 돌파 (추세)"
+                st.session_state["_bb_exit"]       = "중심선(MA) 이탈"
+                # RSI 필터
+                use_rsi_val = _sb(row.get("use_rsi", False))
+                st.session_state["_use_rsi"]       = use_rsi_val
                 st.session_state["_rsi_period"]    = _si(row.get("rsi_period"), 14)
                 rsi_max_v = _si(row.get("rsi_max"), 70)
-                rsi_min_v = _si(row.get("rsi_min"), 30)
-                st.session_state["_rsi_range"]     = (rsi_min_v, rsi_max_v)
+                st.session_state["_rsi_range"]     = (100 - rsi_max_v, rsi_max_v)
                 # MACD
-                st.session_state["_use_macd"]      = _sb(row.get("use_macd"))
-                st.session_state["_macd_fast"]     = _si(row.get("macd_fast"), 12)
-                st.session_state["_macd_slow"]     = _si(row.get("macd_slow"), 26)
-                st.session_state["_macd_signal"]   = _si(row.get("macd_signal"), 9)
-                _macd_mode_v = str(row.get("macd_mode", "히스토그램 양전환"))
-                st.session_state["_macd_mode"]     = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
-                # 시장 필터
-                st.session_state["_use_mkt"]       = _sb(row.get("use_market_filter"))
-                st.session_state["_mkt_ma_p"]      = _si(row.get("market_ma_period"), 200)
+                st.session_state["_use_macd"]      = _sb(row.get("use_macd", False))
                 st.session_state["_apply_pending"] = True
-                st.success("✅ 적용 완료! 백테스트 탭에서 확인하세요.")
+                st.success("✅ 적용 완료! Tab 3에서 백테스트를 실행하세요.")
                 st.rerun()
 
-        elif fine_df is not None:
-            st.warning("유효한 결과가 없습니다. 탐색 범위를 넓히거나 조건을 완화해보세요.")
+        elif opt_df is not None:
+            st.warning("유효한 최적화 결과가 없습니다.")
+            st.markdown("""
+            - 탐색 횟수를 늘려보세요
+            - 최소 매매 횟수를 줄여보세요 (5 → 2)
+            - 최대 허용 MDD를 0(제한없음)으로 설정해보세요
+            """)
 
 
-# ══════════════════════════════════════════════════════════
-# Tab 6: 구간 스트레스 테스트 (단일 전략)
-# ══════════════════════════════════════════════════════════
-with tab6:
-    st.header("📊 구간 스트레스 테스트")
-    st.caption("현재 사이드바 설정 기준으로 5/10/15/20년 구간별 성과를 확인합니다.")
+    # ══════════════════════════════════════════════════════════
+    # Tab 5: 전략 미세조정
+    # ══════════════════════════════════════════════════════════
+with tab5:
+    if tab5.open:
+        st.header("🎯 전략 미세조정")
+        st.caption("등록된 전략의 파라미터 근처에서 최적점을 탐색합니다. 과적합 위험이 낮고 기존 전략 로직을 유지합니다.")
 
-    p_stress = _collect_params()
+        if not presets:
+            st.info("저장된 전략이 없습니다. 먼저 전략을 저장해주세요.")
+        else:
+            st.divider()
 
-    if st.button("🔬 구간 분석 실행", type="primary", use_container_width=True):
-        pseudo_presets = {"현재 전략": _collect_params_dict()}
-        prog = st.progress(0)
-        stress_df = run_period_stress_test(pseudo_presets, progress_placeholder=prog)
-        set_state("single_stress", stress_df)
-
-    single_stress = get_state("single_stress")
-    if single_stress is not None and not single_stress.empty:
-        st.dataframe(single_stress, use_container_width=True)
-
-        # 수익률 막대차트
-        ret_cols = [c for c in single_stress.columns if "수익률" in str(c)]
-        if ret_cols:
-            vals = []
-            for c in ret_cols:
-                v = single_stress.iloc[0][c]
-                try:
-                    vals.append(float(str(v).replace("%", "").split("(")[0]))
-                except Exception:
-                    vals.append(None)
-
-            fig_yr = go.Figure(go.Bar(
-                x=[str(c[1]) if isinstance(c, tuple) else str(c) for c in ret_cols],
-                y=vals,
-                marker_color=["#26a69a" if (v or 0) > 0 else "#ef5350" for v in vals],
-            ))
-            fig_yr.update_layout(
-                title="구간별 수익률", yaxis_title="%",
-                height=300, margin=dict(l=0, r=0, t=40, b=0),
-            )
-            st.plotly_chart(fig_yr, use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════
-# Tab 6: 매매일지
-# ══════════════════════════════════════════════════════════
-
-
-# ══════════════════════════════════════════════════════════
-# Tab 7: 무한매수법 vs 내 전략 비교
-# ══════════════════════════════════════════════════════════
-with tab7:
-    from modules.infinite_buy import InfiniteBuyParams, run_infinite_buy
-
-    st.header("♾️ 무한매수법 vs 내 전략 비교")
-    st.caption("라오어의 무한매수법과 현재 사이드바 전략을 동일 기간/종목으로 비교합니다.")
-
-    st.divider()
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("##### ♾️ 무한매수법 파라미터")
-        inf_capital  = st.number_input("사이클 원금 (원)", value=5_000_000, step=1_000_000, key="inf_capital")
-        inf_splits   = st.number_input("분할 횟수", min_value=10, max_value=100, value=40, step=5, key="inf_splits")
-        inf_target   = st.number_input("익절 목표 (%)", min_value=1, max_value=50, value=10, step=1, key="inf_target")
-        inf_stop     = st.number_input("손절 기준 (%)", min_value=1, max_value=50, value=10, step=1, key="inf_stop")
-    with col2:
-        st.markdown("##### ℹ️ 무한매수법 규칙 요약")
-        st.markdown("""
-        - 원금을 N등분, 매일 1회차씩 매수
-        - **종가 < 평단**: 1회차 전부 매수
-        - **종가 ≥ 평단**: 0.5회차만 매수 (LOC 근사)
-        - **평단 +목표%** 도달 시 전량 익절
-        - **N회차 소진 시**:
-            - -손절기준% 이내 → 손절 후 재시작
-            - -손절기준% 초과 → **동결(존버)** + 새 사이클 병렬 시작
-        - 동결 포지션은 익절가 도달 시 자동 청산
-        """)
-
-    st.divider()
-
-    if st.button("🔄 비교 분석 실행", type="primary", use_container_width=True, key="inf_run"):
-        p_cmp  = _collect_params()
-        ticker = p_cmp.trade_ticker
-
-        with st.spinner(f"데이터 로드 및 분석 중... ({ticker})"):
-            # 동일 데이터 로드
-            cmp_data = prepare_data(
-                p_cmp.signal_ticker, p_cmp.trade_ticker,
-                p_cmp.market_ticker, start_date, end_date, p_cmp
-            )
-            if cmp_data is None:
-                st.error("데이터 로드 실패")
-            else:
-                # 내 전략 백테스트
-                my_result = run_backtest(cmp_data, p_cmp)
-
-                # 무한매수법 백테스트
-                inf_params = InfiniteBuyParams(
-                    initial_capital = float(inf_capital),
-                    n_splits        = int(inf_splits),
-                    target_pct      = float(inf_target),
-                    stop_pct        = float(inf_stop),
-                    fee_bps         = p_cmp.fee_bps,
-                    slip_bps        = p_cmp.slip_bps,
+            col1, col2 = st.columns(2)
+            with col1:
+                fine_preset_list = list(presets.keys())
+                fine_preset = st.selectbox(
+                    "미세조정할 전략 선택",
+                    fine_preset_list,
+                    key="fine_preset_select"
                 )
-                base_df    = cmp_data["base"]
-                trd_close  = cmp_data["trd_close"]
-                trd_open   = cmp_data["trd_open"]
-                trd_high   = cmp_data["trd_high"]
-                trd_low    = cmp_data["trd_low"]
+                # 전략 선택이 바뀌면 이전 결과 초기화
+                if get_state("fine_preset_prev") != fine_preset:
+                    set_state("fine_result",      None)
+                    set_state("fine_current",     None)
+                    set_state("fine_preset_prev", fine_preset)
+            with col2:
+                fine_target = st.selectbox("최적화 목표", [
+                    "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
+                ], key="fine_target")
 
-                # 매매 종목(trade_ticker) 일봉 DataFrame 구성
-                inf_df = pd.DataFrame({
-                    "Date":   base_df["Date"].values,
-                    "Open":   trd_open,
-                    "High":   trd_high,
-                    "Low":    trd_low,
-                    "Close":  trd_close,
-                    "Volume": np.zeros(len(base_df)),
-                })
-                inf_result = run_infinite_buy(inf_df, inf_params)
+            st.divider()
+            st.markdown("##### 🔍 탐색 범위 설정")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                fine_ma_half  = st.slider("MA 탐색 범위 (±)", 5, 30, 15, 5, key="fine_ma_half")
+                fine_off_half = st.slider("오프셋 탐색 범위 (±)", 5, 30, 10, 5, key="fine_off_half")
+            with col2:
+                fine_trials = st.number_input("시드당 탐색 횟수", 50, 1000, 200, 50, key="fine_trials")
+                fine_seeds  = st.slider("시드 개수", 1, 10, 3, key="fine_seeds")
+            with col3:
+                fine_min_trades  = st.slider("최소 매매 횟수", 1, 30, 5, key="fine_min_trades")
+                fine_max_mdd     = st.number_input("최대 허용 MDD (0=제한없음)", 0, 100, 0, 5, key="fine_max_mdd")
+                fine_min_wr      = st.number_input("최소 승률 (%)", 0, 100, 50, 5, key="fine_min_wr")
 
-                set_state("inf_result",    inf_result)
-                set_state("my_result_cmp", my_result)
-                set_state("inf_ticker",    ticker)
-                set_state("cmp_data_cache", cmp_data)
+            fine_sl = st.checkbox("손절 범위 탐색", value=True, key="fine_sl")
+            fine_tp = st.checkbox("익절 범위 탐색", value=True, key="fine_tp")
 
-    # ── 결과 표시 ─────────────────────────────────────────
-    inf_result = get_state("inf_result")
-    my_result  = get_state("my_result_cmp")
-    inf_ticker = get_state("inf_ticker", "")
+            total_fine = fine_trials * fine_seeds
+            st.info(f"⏱ 총 탐색: **{total_fine:,}회** ({fine_trials}회 × {fine_seeds}시드) — 현재 전략 파라미터 근처만 탐색")
 
-    if inf_result and my_result:
+            if st.button("🚀 미세조정 시작", type="primary", use_container_width=True, key="fine_btn"):
+                from modules.portfolio import preset_to_params
+                fine_p = preset_to_params(presets[fine_preset])
+
+                prog_bar2  = st.progress(0)
+                status_ph2 = st.empty()
+
+                def _fine_progress(cur, total):
+                    prog_bar2.progress(int(cur / total * 100))
+                    status_ph2.caption(f"⏳ {cur}/{total} 탐색 완료...")
+
+                with st.spinner("미세조정 중..."):
+                    fine_df, fine_current = run_preset_optimization(
+                        preset_params = fine_p,
+                        start_date    = start_date,
+                        end_date      = end_date,
+                        constraints   = OptimizeConstraints(
+                            min_trades   = fine_min_trades,
+                            max_mdd      = float(fine_max_mdd) if fine_max_mdd > 0 else 0,
+                            min_win_rate = float(fine_min_wr),
+                        ),
+                        ma_half    = fine_ma_half,
+                        off_half   = fine_off_half,
+                        sl_range   = fine_sl,
+                        tp_range   = fine_tp,
+                        n_trials   = int(fine_trials),
+                        n_seeds    = int(fine_seeds),
+                        target     = fine_target,
+                        progress_cb= _fine_progress,
+                    )
+
+                prog_bar2.empty()
+                status_ph2.empty()
+                set_state("fine_result",  fine_df)
+                set_state("fine_current", fine_current)
+                set_state("fine_preset_name", fine_preset)
+
+            # ── 결과 표시 ─────────────────────────────────────
+            fine_df      = get_state("fine_result")
+            fine_current = get_state("fine_current")
+            fine_name    = get_state("fine_preset_name", "")
+
+            if fine_df is not None and not fine_df.empty and fine_current is not None:
+                st.divider()
+
+                # 현재 전략 vs 최적화 비교
+                st.subheader(f"📊 '{fine_name}' 현재 vs 미세조정 결과")
+
+                def _delta(new, old):
+                    if old and old != 0:
+                        d = new - old
+                        sign = "▲" if d > 0 else "▼"
+                        color = "#26a69a" if d > 0 else "#ef5350"
+                        return f'<span style="color:{color}">{sign}{abs(d):.1f}</span>'
+                    return "-"
+
+                best = fine_df.iloc[0]
+                comp_data = {
+                    "지표": ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"],
+                    "현재 전략": [
+                        f"{fine_current.total_return_pct:.1f}",
+                        f"{fine_current.mdd_pct:.1f}",
+                        f"{fine_current.win_rate_pct:.1f}",
+                        f"{fine_current.profit_factor:.2f}",
+                        str(fine_current.total_trades),
+                    ],
+                    "미세조정 #1": [
+                        f"{best['수익률(%)']:.1f}",
+                        f"{best['MDD(%)']:.1f}",
+                        f"{best['승률(%)']:.1f}",
+                        f"{best['PF']:.2f}",
+                        str(int(best['매매횟수'])),
+                    ],
+                }
+                comp_df = pd.DataFrame(comp_data)
+                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+
+                st.divider()
+                res_cols   = ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
+                param_cols = [c for c in fine_df.columns if c not in res_cols]
+
+                ft1, ft2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
+                with ft1:
+                    st.dataframe(fine_df[res_cols].head(20), use_container_width=True, hide_index=True)
+                with ft2:
+                    st.dataframe(fine_df[param_cols].head(20), use_container_width=True, hide_index=True)
+
+                st.divider()
+                st.subheader("✅ 결과 사이드바 적용")
+                fine_idx = st.selectbox(
+                    "적용할 순위",
+                    list(range(min(10, len(fine_df)))),
+                    format_func=lambda i: (
+                        f"#{i+1}  수익률 {fine_df.iloc[i]['수익률(%)']:.1f}%  |  "
+                        f"MDD {fine_df.iloc[i]['MDD(%)']:.1f}%  |  "
+                        f"승률 {fine_df.iloc[i]['승률(%)']:.1f}%  |  "
+                        f"매매 {int(fine_df.iloc[i]['매매횟수'])}회"
+                    ),
+                    key="fine_apply_idx"
+                )
+
+                if st.button("✅ 사이드바에 적용", type="primary", use_container_width=True, key="fine_apply_btn"):
+                    row = fine_df.iloc[fine_idx]
+                    def _si(v, d):
+                        try: return int(float(v))
+                        except: return d
+                    def _sf(v, d):
+                        try: return float(v)
+                        except: return d
+                    def _sb(v, d=False):
+                        if isinstance(v, bool): return v
+                        return str(v).lower() in ["true", "1", "t"]
+
+                    # 이평선 / 오프셋
+                    st.session_state["_ma_buy"]        = _si(row.get("ma_buy"), 50)
+                    st.session_state["_ma_sell"]       = _si(row.get("ma_sell"), 10)
+                    st.session_state["_off_cl_buy"]    = _si(row.get("offset_cl_buy"), 1)
+                    st.session_state["_off_ma_buy"]    = _si(row.get("offset_ma_buy"), 1)
+                    st.session_state["_off_cl_sell"]   = _si(row.get("offset_cl_sell"), 1)
+                    st.session_state["_off_ma_sell"]   = _si(row.get("offset_ma_sell"), 1)
+                    st.session_state["_buy_op"]        = str(row.get("buy_operator", ">"))
+                    st.session_state["_sell_op"]       = str(row.get("sell_operator", "<"))
+                    # 추세 필터
+                    st.session_state["_use_trend_buy"] = _sb(row.get("use_trend_buy"))
+                    st.session_state["_use_trend_sell"]= _sb(row.get("use_trend_sell"))
+                    st.session_state["_ma_ts"]         = _si(row.get("ma_trend_short"), 20)
+                    st.session_state["_ma_tl"]         = _si(row.get("ma_trend_long"), 50)
+                    st.session_state["_off_ts"]        = _si(row.get("offset_trend_short"), 1)
+                    st.session_state["_off_tl"]        = _si(row.get("offset_trend_long"), 1)
+                    # 손절/익절
+                    st.session_state["_stop_pct"]      = _si(row.get("stop_loss_pct"), 0)
+                    st.session_state["_tp_pct"]        = _si(row.get("take_profit_pct"), 0)
+                    st.session_state["_use_atr_stop"]  = _sb(row.get("use_atr_stop"))
+                    st.session_state["_atr_mult"]      = _sf(row.get("atr_multiplier"), 2.0)
+                    # RSI
+                    st.session_state["_use_rsi"]       = _sb(row.get("use_rsi_filter"))
+                    st.session_state["_rsi_period"]    = _si(row.get("rsi_period"), 14)
+                    rsi_max_v = _si(row.get("rsi_max"), 70)
+                    rsi_min_v = _si(row.get("rsi_min"), 30)
+                    st.session_state["_rsi_range"]     = (rsi_min_v, rsi_max_v)
+                    # MACD
+                    st.session_state["_use_macd"]      = _sb(row.get("use_macd"))
+                    st.session_state["_macd_fast"]     = _si(row.get("macd_fast"), 12)
+                    st.session_state["_macd_slow"]     = _si(row.get("macd_slow"), 26)
+                    st.session_state["_macd_signal"]   = _si(row.get("macd_signal"), 9)
+                    _macd_mode_v = str(row.get("macd_mode", "히스토그램 양전환"))
+                    st.session_state["_macd_mode"]     = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
+                    # 시장 필터
+                    st.session_state["_use_mkt"]       = _sb(row.get("use_market_filter"))
+                    st.session_state["_mkt_ma_p"]      = _si(row.get("market_ma_period"), 200)
+                    st.session_state["_apply_pending"] = True
+                    st.success("✅ 적용 완료! 백테스트 탭에서 확인하세요.")
+                    st.rerun()
+
+            elif fine_df is not None:
+                st.warning("유효한 결과가 없습니다. 탐색 범위를 넓히거나 조건을 완화해보세요.")
+
+
+    # ══════════════════════════════════════════════════════════
+    # Tab 6: 구간 스트레스 테스트 (단일 전략)
+    # ══════════════════════════════════════════════════════════
+with tab6:
+    if tab6.open:
+        st.header("📊 구간 스트레스 테스트")
+        st.caption("현재 사이드바 설정 기준으로 5/10/15/20년 구간별 성과를 확인합니다.")
+
+        p_stress = _collect_params()
+
+        if st.button("🔬 구간 분석 실행", type="primary", use_container_width=True):
+            pseudo_presets = {"현재 전략": _collect_params_dict()}
+            prog = st.progress(0)
+            stress_df = run_period_stress_test(pseudo_presets, progress_placeholder=prog)
+            set_state("single_stress", stress_df)
+
+        single_stress = get_state("single_stress")
+        if single_stress is not None and not single_stress.empty:
+            st.dataframe(single_stress, use_container_width=True)
+
+            # 수익률 막대차트
+            ret_cols = [c for c in single_stress.columns if "수익률" in str(c)]
+            if ret_cols:
+                vals = []
+                for c in ret_cols:
+                    v = single_stress.iloc[0][c]
+                    try:
+                        vals.append(float(str(v).replace("%", "").split("(")[0]))
+                    except Exception:
+                        vals.append(None)
+
+                fig_yr = go.Figure(go.Bar(
+                    x=[str(c[1]) if isinstance(c, tuple) else str(c) for c in ret_cols],
+                    y=vals,
+                    marker_color=["#26a69a" if (v or 0) > 0 else "#ef5350" for v in vals],
+                ))
+                fig_yr.update_layout(
+                    title="구간별 수익률", yaxis_title="%",
+                    height=300, margin=dict(l=0, r=0, t=40, b=0),
+                )
+                st.plotly_chart(fig_yr, use_container_width=True)
+
+
+    # ══════════════════════════════════════════════════════════
+    # Tab 6: 매매일지
+    # ══════════════════════════════════════════════════════════
+
+
+    # ══════════════════════════════════════════════════════════
+    # Tab 7: 무한매수법 vs 내 전략 비교
+    # ══════════════════════════════════════════════════════════
+with tab7:
+    if tab7.open:
+        from modules.infinite_buy import InfiniteBuyParams, run_infinite_buy
+
+        st.header("♾️ 무한매수법 vs 내 전략 비교")
+        st.caption("라오어의 무한매수법과 현재 사이드바 전략을 동일 기간/종목으로 비교합니다.")
+
         st.divider()
-        st.subheader(f"📊 {inf_ticker} — 비교 결과 ({start_date} ~ {end_date})")
 
-        # 핵심 지표 비교표
-        def _fmt(v, suffix=""):
-            if v is None: return "-"
-            try: return f"{float(v):.1f}{suffix}"
-            except: return str(v)
-
-        comp = {
-            "지표": [
-                "총 수익률 (%)", "MDD (%)", "승률 (%)",
-                "총 매매 / 사이클",
-                "익절 횟수", "손절 횟수", "동결(존버) 현황",
-                "평균 사이클(일)",
-            ],
-            "내 전략": [
-                _fmt(my_result.total_return_pct, "%"),
-                _fmt(my_result.mdd_pct, "%"),
-                _fmt(my_result.win_rate_pct, "%"),
-                str(my_result.total_trades),
-                "-", "-", "-", "-",
-            ],
-            "무한매수법": [
-                _fmt(inf_result.total_return_pct, "%"),
-                _fmt(inf_result.mdd_pct, "%"),
-                _fmt(inf_result.win_rate_pct, "%"),
-                str(inf_result.n_cycles_done),
-                str(inf_result.n_win),
-                str(inf_result.n_loss),
-                f"{inf_result.n_frozen}개 진행중",
-                _fmt(inf_result.avg_cycle_days, "일"),
-            ],
-        }
-        comp_df = pd.DataFrame(comp)
-
-        def _color_row(row):
-            styles = [""] * len(row)
-            try:
-                my_v  = float(str(row["내 전략"]).replace("%","").replace("일",""))
-                inf_v = float(str(row["무한매수법"]).replace("%","").replace("일",""))
-                if row["지표"] in ("총 수익률 (%)", "승률 (%)"):
-                    if my_v > inf_v:
-                        styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
-                    elif inf_v > my_v:
-                        styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
-                elif row["지표"] == "MDD (%)":
-                    if my_v > inf_v:  # MDD는 작을수록 좋음 (음수)
-                        styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
-                    elif inf_v > my_v:
-                        styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
-            except: pass
-            return styles
-
-        st.dataframe(
-            comp_df.style.apply(_color_row, axis=1),
-            use_container_width=True, hide_index=True
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("##### ♾️ 무한매수법 파라미터")
+            inf_capital  = st.number_input("사이클 원금 (원)", value=5_000_000, step=1_000_000, key="inf_capital")
+            inf_splits   = st.number_input("분할 횟수", min_value=10, max_value=100, value=40, step=5, key="inf_splits")
+            inf_target   = st.number_input("익절 목표 (%)", min_value=1, max_value=50, value=10, step=1, key="inf_target")
+            inf_stop     = st.number_input("손절 기준 (%)", min_value=1, max_value=50, value=10, step=1, key="inf_stop")
+        with col2:
+            st.markdown("##### ℹ️ 무한매수법 규칙 요약")
+            st.markdown("""
+            - 원금을 N등분, 매일 1회차씩 매수
+            - **종가 < 평단**: 1회차 전부 매수
+            - **종가 ≥ 평단**: 0.5회차만 매수 (LOC 근사)
+            - **평단 +목표%** 도달 시 전량 익절
+            - **N회차 소진 시**:
+                - -손절기준% 이내 → 손절 후 재시작
+                - -손절기준% 초과 → **동결(존버)** + 새 사이클 병렬 시작
+            - 동결 포지션은 익절가 도달 시 자동 청산
+            """)
 
         st.divider()
 
-        # 자산 곡선 비교 차트
-        st.subheader("📈 자산 곡선 비교")
-        n_my  = len(my_result.asset_curve)
-        n_inf = len(inf_result.asset_curve)
+        if st.button("🔄 비교 분석 실행", type="primary", use_container_width=True, key="inf_run"):
+            p_cmp  = _collect_params()
+            ticker = p_cmp.trade_ticker
 
-        if n_my > 0 and n_inf > 0:
-            import plotly.graph_objects as go
-            _cmp_data = get_state("cmp_data_cache")
-            if _cmp_data is None:
-                st.warning("차트 데이터를 불러올 수 없습니다. 다시 실행해주세요.")
-            else:
-                n_min = min(n_my, n_inf, len(_cmp_data["base"]))
-                d_arr = pd.to_datetime(_cmp_data["base"]["Date"].values[-n_min:])
+            with st.spinner(f"데이터 로드 및 분석 중... ({ticker})"):
+                # 동일 데이터 로드
+                cmp_data = prepare_data(
+                    p_cmp.signal_ticker, p_cmp.trade_ticker,
+                    p_cmp.market_ticker, start_date, end_date, p_cmp
+                )
+                if cmp_data is None:
+                    st.error("데이터 로드 실패")
+                else:
+                    # 내 전략 백테스트
+                    my_result = run_backtest(cmp_data, p_cmp)
 
-            fig = go.Figure()
-            # 내 전략 (정규화: 시작 = 100)
-            my_norm  = my_result.asset_curve[-n_min:]  / my_result.asset_curve[-n_min] * 100
-            inf_norm = inf_result.asset_curve[-n_min:] / inf_result.asset_curve[-n_min] * 100
+                    # 무한매수법 백테스트
+                    inf_params = InfiniteBuyParams(
+                        initial_capital = float(inf_capital),
+                        n_splits        = int(inf_splits),
+                        target_pct      = float(inf_target),
+                        stop_pct        = float(inf_stop),
+                        fee_bps         = p_cmp.fee_bps,
+                        slip_bps        = p_cmp.slip_bps,
+                    )
+                    base_df    = cmp_data["base"]
+                    trd_close  = cmp_data["trd_close"]
+                    trd_open   = cmp_data["trd_open"]
+                    trd_high   = cmp_data["trd_high"]
+                    trd_low    = cmp_data["trd_low"]
 
-            fig.add_trace(go.Scatter(
-                x=d_arr, y=my_norm,
-                name="내 전략", line=dict(color="#26a69a", width=2)
-            ))
-            fig.add_trace(go.Scatter(
-                x=d_arr, y=inf_norm,
-                name="무한매수법", line=dict(color="#ff9800", width=2)
-            ))
-            fig.update_layout(
-                height=400, template="plotly_dark",
-                yaxis_title="수익 지수 (시작=100)",
-                legend=dict(orientation="h", y=1.02),
-                margin=dict(l=0, r=0, t=30, b=0),
-            )
-            st.plotly_chart(fig, use_container_width=True)
+                    # 매매 종목(trade_ticker) 일봉 DataFrame 구성
+                    inf_df = pd.DataFrame({
+                        "Date":   base_df["Date"].values,
+                        "Open":   trd_open,
+                        "High":   trd_high,
+                        "Low":    trd_low,
+                        "Close":  trd_close,
+                        "Volume": np.zeros(len(base_df)),
+                    })
+                    inf_result = run_infinite_buy(inf_df, inf_params)
 
-        # 무한매수법 사이클 상세
-        st.divider()
-        st.subheader("♾️ 무한매수법 사이클 상세")
-        if inf_result.cycles:
-            cyc_df = pd.DataFrame([{
-                "사이클": c.cycle_no,
-                "시작일": c.start_date,
-                "종료일": c.end_date,
-                "결과":   c.outcome,
-                "수익률(%)": c.return_pct,
-                "기간(일)": c.days,
-                "평단가": round(c.avg_price, 2),
-                "청산가": round(c.exit_price, 2),
-            } for c in inf_result.cycles])
+                    set_state("inf_result",    inf_result)
+                    set_state("my_result_cmp", my_result)
+                    set_state("inf_ticker",    ticker)
+                    set_state("cmp_data_cache", cmp_data)
 
-            def _cyc_color(val):
-                if "익절" in str(val): return "color:#26a69a; font-weight:600"
-                if "손절" in str(val): return "color:#ef5350; font-weight:600"
-                if "동결" in str(val): return "color:#ff9800; font-weight:600"
-                return ""
+        # ── 결과 표시 ─────────────────────────────────────────
+        inf_result = get_state("inf_result")
+        my_result  = get_state("my_result_cmp")
+        inf_ticker = get_state("inf_ticker", "")
+
+        if inf_result and my_result:
+            st.divider()
+            st.subheader(f"📊 {inf_ticker} — 비교 결과 ({start_date} ~ {end_date})")
+
+            # 핵심 지표 비교표
+            def _fmt(v, suffix=""):
+                if v is None: return "-"
+                try: return f"{float(v):.1f}{suffix}"
+                except: return str(v)
+
+            comp = {
+                "지표": [
+                    "총 수익률 (%)", "MDD (%)", "승률 (%)",
+                    "총 매매 / 사이클",
+                    "익절 횟수", "손절 횟수", "동결(존버) 현황",
+                    "평균 사이클(일)",
+                ],
+                "내 전략": [
+                    _fmt(my_result.total_return_pct, "%"),
+                    _fmt(my_result.mdd_pct, "%"),
+                    _fmt(my_result.win_rate_pct, "%"),
+                    str(my_result.total_trades),
+                    "-", "-", "-", "-",
+                ],
+                "무한매수법": [
+                    _fmt(inf_result.total_return_pct, "%"),
+                    _fmt(inf_result.mdd_pct, "%"),
+                    _fmt(inf_result.win_rate_pct, "%"),
+                    str(inf_result.n_cycles_done),
+                    str(inf_result.n_win),
+                    str(inf_result.n_loss),
+                    f"{inf_result.n_frozen}개 진행중",
+                    _fmt(inf_result.avg_cycle_days, "일"),
+                ],
+            }
+            comp_df = pd.DataFrame(comp)
+
+            def _color_row(row):
+                styles = [""] * len(row)
+                try:
+                    my_v  = float(str(row["내 전략"]).replace("%","").replace("일",""))
+                    inf_v = float(str(row["무한매수법"]).replace("%","").replace("일",""))
+                    if row["지표"] in ("총 수익률 (%)", "승률 (%)"):
+                        if my_v > inf_v:
+                            styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                        elif inf_v > my_v:
+                            styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                    elif row["지표"] == "MDD (%)":
+                        if my_v > inf_v:  # MDD는 작을수록 좋음 (음수)
+                            styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                        elif inf_v > my_v:
+                            styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                except: pass
+                return styles
 
             st.dataframe(
-                cyc_df.style.map(_cyc_color, subset=["결과"]),
+                comp_df.style.apply(_color_row, axis=1),
                 use_container_width=True, hide_index=True
             )
+
+            st.divider()
+
+            # 자산 곡선 비교 차트
+            st.subheader("📈 자산 곡선 비교")
+            n_my  = len(my_result.asset_curve)
+            n_inf = len(inf_result.asset_curve)
+
+            if n_my > 0 and n_inf > 0:
+                import plotly.graph_objects as go
+                _cmp_data = get_state("cmp_data_cache")
+                if _cmp_data is None:
+                    st.warning("차트 데이터를 불러올 수 없습니다. 다시 실행해주세요.")
+                else:
+                    n_min = min(n_my, n_inf, len(_cmp_data["base"]))
+                    d_arr = pd.to_datetime(_cmp_data["base"]["Date"].values[-n_min:])
+
+                fig = go.Figure()
+                # 내 전략 (정규화: 시작 = 100)
+                my_norm  = my_result.asset_curve[-n_min:]  / my_result.asset_curve[-n_min] * 100
+                inf_norm = inf_result.asset_curve[-n_min:] / inf_result.asset_curve[-n_min] * 100
+
+                fig.add_trace(go.Scatter(
+                    x=d_arr, y=my_norm,
+                    name="내 전략", line=dict(color="#26a69a", width=2)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=d_arr, y=inf_norm,
+                    name="무한매수법", line=dict(color="#ff9800", width=2)
+                ))
+                fig.update_layout(
+                    height=400, template="plotly_dark",
+                    yaxis_title="수익 지수 (시작=100)",
+                    legend=dict(orientation="h", y=1.02),
+                    margin=dict(l=0, r=0, t=30, b=0),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            # 무한매수법 사이클 상세
+            st.divider()
+            st.subheader("♾️ 무한매수법 사이클 상세")
+            if inf_result.cycles:
+                cyc_df = pd.DataFrame([{
+                    "사이클": c.cycle_no,
+                    "시작일": c.start_date,
+                    "종료일": c.end_date,
+                    "결과":   c.outcome,
+                    "수익률(%)": c.return_pct,
+                    "기간(일)": c.days,
+                    "평단가": round(c.avg_price, 2),
+                    "청산가": round(c.exit_price, 2),
+                } for c in inf_result.cycles])
+
+                def _cyc_color(val):
+                    if "익절" in str(val): return "color:#26a69a; font-weight:600"
+                    if "손절" in str(val): return "color:#ef5350; font-weight:600"
+                    if "동결" in str(val): return "color:#ff9800; font-weight:600"
+                    return ""
+
+                st.dataframe(
+                    cyc_df.style.map(_cyc_color, subset=["결과"]),
+                    use_container_width=True, hide_index=True
+                )
