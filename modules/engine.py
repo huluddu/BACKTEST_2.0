@@ -102,6 +102,7 @@ class StrategyParams:
     # ── 매매 규칙 ─────────────────────────────────────────
     min_hold_days: int     = 0
     initial_cash: float    = 5_000_000.0
+    execution_mode: str    = "LOC"  # "LOC" = 당일 종가, "NEXT_OPEN" = 다음날 시가
 
     # ── 비용 ─────────────────────────────────────────────
     fee_bps: float  = 25.0
@@ -539,7 +540,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         # 미보유  → 매수 조건 체크 (매도 무시)
         if not sold_today and position > 0:
             if sell_cond and hold_days >= p.min_hold_days:
-                exec_price = next_open
+                exec_price = close_today if p.execution_mode == "LOC" else next_open
                 fill       = _fill_price(exec_price, "sell", p.fee_bps, p.slip_bps)
                 cash       = position * fill
                 trade_log.append(_make_log(
@@ -554,7 +555,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         elif not sold_today and position == 0:
             if buy_cond:
-                exec_price  = next_open   # T+1: 다음날 시가 체결
+                exec_price = close_today if p.execution_mode == "LOC" else next_open
                 fill        = _fill_price(exec_price, "buy", p.fee_bps, p.slip_bps)
                 position    = cash / fill
                 entry_price = exec_price
