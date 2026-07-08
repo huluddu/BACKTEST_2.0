@@ -97,6 +97,7 @@ def run_portfolio_scan(
     start_date,
     end_date,
     progress_placeholder=None,
+    execution_mode: str = "LOC",
 ) -> pd.DataFrame:
     """
     모든 프리셋에 대해 백테스트 + 오늘 시그널 + 보유 상태를 한 번에 분석.
@@ -115,6 +116,7 @@ def run_portfolio_scan(
 
         try:
             p = preset_to_params(preset_dict)
+            p.execution_mode = execution_mode
 
             # 데이터 준비
             data = prepare_data(
@@ -250,6 +252,7 @@ def run_yearly_returns(
     start_date=None,
     end_date=None,
     progress_placeholder=None,
+    execution_mode: str = "LOC",
 ) -> pd.DataFrame:
     """
     각 전략의 연도별 수익률 히트맵용 DataFrame 반환.
@@ -270,6 +273,7 @@ def run_yearly_returns(
             )
         try:
             p      = preset_to_params(preset_dict)
+            p.execution_mode = execution_mode
             data   = prepare_data(p.signal_ticker, p.trade_ticker, p.market_ticker,
                                   start_d, end_d, p)
             if data is None:
@@ -300,6 +304,7 @@ def run_period_stress_test(
     presets: dict,
     year_list: list = [5, 10, 15, 20],
     progress_placeholder=None,
+    execution_mode: str = "LOC",
 ) -> pd.DataFrame:
     """
     각 전략을 5/10/15/20년 구간별로 백테스트해서 멀티인덱스 DataFrame 반환.
@@ -311,6 +316,7 @@ def run_period_stress_test(
 
     for name, preset_dict in presets.items():
         p        = preset_to_params(preset_dict)
+        p.execution_mode = execution_mode
         strategy_id = f"{name} ({p.trade_ticker})"
         row_data = {}
 
