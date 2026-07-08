@@ -539,7 +539,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         # 미보유  → 매수 조건 체크 (매도 무시)
         if not sold_today and position > 0:
             if sell_cond and hold_days >= p.min_hold_days:
-                exec_price = close_today  # LOC: 당일 종가 체결
+                exec_price = next_open
                 fill       = _fill_price(exec_price, "sell", p.fee_bps, p.slip_bps)
                 cash       = position * fill
                 trade_log.append(_make_log(
@@ -554,7 +554,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         elif not sold_today and position == 0:
             if buy_cond:
-                exec_price  = close_today  # LOC: 당일 종가 체결
+                exec_price  = next_open   # T+1: 다음날 시가 체결
                 fill        = _fill_price(exec_price, "buy", p.fee_bps, p.slip_bps)
                 position    = cash / fill
                 entry_price = exec_price
