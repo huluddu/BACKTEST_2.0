@@ -1413,11 +1413,17 @@ with tab5:
 
         col1, col2 = st.columns(2)
         with col1:
+            fine_preset_list = list(presets.keys())
             fine_preset = st.selectbox(
                 "미세조정할 전략 선택",
-                list(presets.keys()),
+                fine_preset_list,
                 key="fine_preset_select"
             )
+            # 전략 선택이 바뀌면 이전 결과 초기화
+            if get_state("fine_preset_prev") != fine_preset:
+                set_state("fine_result",      None)
+                set_state("fine_current",     None)
+                set_state("fine_preset_prev", fine_preset)
         with col2:
             fine_target = st.selectbox("최적화 목표", [
                 "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
