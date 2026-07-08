@@ -830,6 +830,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 # ══════════════════════════════════════════════════════════
 # Tab 1: 오늘의 시그널
 # ══════════════════════════════════════════════════════════
+# 전략 프리셋 - 탭 전체에서 공통으로 사용
+presets = get_state("presets") or {}
+
 with tab1:
     if tab1.open:
         st.header("📡 오늘의 시그널")
@@ -884,7 +887,6 @@ with tab1:
                     st.markdown(f":{c}[{icon} {sig['sell_msg']}]")
 
         # 프리셋 전체 시그널 일람
-        presets = get_state("presets")
         if presets:
             st.divider()
             st.subheader("📋 저장된 전략 시그널 일람")
