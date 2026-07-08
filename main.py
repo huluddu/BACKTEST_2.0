@@ -917,6 +917,15 @@ with tab2:
 
         presets = get_state("presets")
 
+        # 체결 방식 선택
+        preset_exec_mode = st.radio(
+            "⚙️ 체결 방식",
+            ["LOC 종가", "T+1 시가"],
+            horizontal=True, key="preset_exec_mode",
+            help="전략 분석 시 적용할 체결 방식"
+        )
+        _preset_exec = "LOC" if preset_exec_mode == "LOC 종가" else "NEXT_OPEN"
+
         sub1, sub2, sub3 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교", "📅 연도별 수익률"])
 
         with sub1:
@@ -928,7 +937,8 @@ with tab2:
                     if st.button("🔄 전체 분석 실행", type="primary", use_container_width=True):
                         prog = st.progress(0)
                         scan_df = run_portfolio_scan(presets, start_date, end_date,
-                                                    progress_placeholder=prog)
+                                                    progress_placeholder=prog,
+                                                    execution_mode=_preset_exec)
                         set_state("scan_result", scan_df)
 
                 scan_result = get_state("scan_result")
@@ -960,7 +970,8 @@ with tab2:
             else:
                 if st.button("📊 구간별 성과 분석", type="primary", use_container_width=True):
                     prog = st.progress(0)
-                    stress_df = run_period_stress_test(presets, progress_placeholder=prog)
+                    stress_df = run_period_stress_test(presets, progress_placeholder=prog,
+                                                      execution_mode=_preset_exec)
                     set_state("stress_result", stress_df)
 
                 stress = get_state("stress_result")
@@ -979,6 +990,7 @@ with tab2:
                         start_date=start_date,
                         end_date=end_date,
                         progress_placeholder=prog,
+                        execution_mode=_preset_exec,
                     )
                     set_state("yearly_result", yearly_df)
 
