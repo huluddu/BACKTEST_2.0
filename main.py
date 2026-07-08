@@ -1021,107 +1021,189 @@ with tab3:
     if tab3.open:
         st.header("🔬 백테스트")
 
-        p = _collect_params()
+        bt_sub1, bt_sub2, bt_sub3 = st.tabs(["📌 LOC 종가", "⏭ T+1 시가", "📊 비교"])
 
-        run_bt = st.button("▶️ 백테스트 실행", type="primary", use_container_width=True)
-
-        if run_bt:
+        def _run_bt(mode: str):
+            """체결 방식별 백테스트 실행"""
+            p = _collect_params()
+            p.execution_mode = mode
             with st.spinner("데이터 준비 중..."):
                 data = prepare_data(
                     p.signal_ticker, p.trade_ticker, p.market_ticker,
                     start_date, end_date, p
                 )
-
             if data is None:
                 st.error("데이터 로드 실패. 티커와 기간을 확인해주세요.")
+                return None, None, None
+            with st.spinner("백테스트 실행 중..."):
+                result = run_backtest(data, p)
+            return result, data, p
+
+        def _show_bt_result(result, data, p_used):
+            """백테스트 결과 표시 (공통)"""
+            if result and result.is_valid:
+                sr = sharpe_ratio(result.asset_curve)
+                cr = calmar_ratio(result.total_return_pct, result.mdd_pct)
+
+                def _card(label, value, delta=None):
+                    delta_html = ""
+                    if delta is not None:
+                        color = "#26a69a" if delta > 0 else "#ef5350"
+                        sign  = "▲" if delta > 0 else "▼"
+                        delta_html = f'<div style="font-size:11px;color:{color}">{sign} {abs(delta):.1f}%p vs B&H</div>'
+                    return f"""
+                    <div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
+                      <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
+                      <div style="font-size:16px;font-weight:600;color:#e0e0e0">{value}</div>
+                      {delta_html}
+                    </div>"""
+
+                row1 = st.columns(4)
+                row2 = st.columns(4)
+                cards_r1 = [
+                    ("📈 수익률",      format_result_metric(result.total_return_pct), result.total_return_pct - result.bh_return_pct),
+                    ("📊 B&H 수익률", format_result_metric(result.bh_return_pct),     None),
+                    ("📉 MDD",         format_result_metric(result.mdd_pct),           result.mdd_pct - result.bh_mdd_pct),
+                    ("🎯 승률",         format_result_metric(result.win_rate_pct),      None),
+                ]
+                cards_r2 = [
+                    ("⚡ Profit Factor", f"{result.profit_factor:.2f}", None),
+                    ("🔄 매매횟수",      f"{result.total_trades}회",    None),
+                    ("📐 샤프 비율",     f"{sr:.2f}",                   None),
+                    ("💰 최종 자산",     f"₩{result.asset_curve[-1]:,.0f}", None),
+                ]
+                for col, (label, val, delta) in zip(row1, cards_r1):
+                    col.markdown(_card(label, val, delta), unsafe_allow_html=True)
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                for col, (label, val, delta) in zip(row2, cards_r2):
+                    col.markdown(_card(label, val, delta), unsafe_allow_html=True)
+
+                st.divider()
+                st.subheader("📈 가격 & 시그널")
+                fig_price = _draw_price_chart(result.chart_data, result.trade_log, p_used)
+                st.plotly_chart(fig_price, use_container_width=True)
+                st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+                st.subheader("💹 자산 곡선")
+                fig_equity = _draw_equity_chart(result, result.chart_data)
+                st.plotly_chart(fig_equity, use_container_width=True)
+                st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+                st.subheader("🗓 월별 수익률 히트맵")
+                fig_heatmap = _draw_monthly_heatmap(result, result.chart_data)
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+                st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+                st.subheader("📋 매매 내역")
+                if result.trade_log:
+                    log_df = pd.DataFrame(result.trade_log)
+                    log_df["날짜"] = pd.to_datetime(log_df["날짜"]).dt.strftime("%Y-%m-%d")
+                    st.dataframe(
+                        log_df.style.map(
+                            lambda v: "color: #26a69a; font-weight:bold" if v == "BUY" else
+                                      "color: #ef5350; font-weight:bold" if v == "SELL" else "",
+                            subset=["신호"]
+                        ),
+                        use_container_width=True, hide_index=True,
+                    )
+            elif result and result.error:
+                st.error(f"백테스트 실패: {result.error}")
+
+        # ── LOC 종가 탭 ──────────────────────────────────
+        with bt_sub1:
+            if st.button("▶️ LOC 종가 백테스트", type="primary", use_container_width=True, key="bt_loc"):
+                r, d, p = _run_bt("LOC")
+                if r:
+                    set_state("result_loc", r)
+                    set_state("data_loc",   d)
+                    set_state("params_loc", p)
+            _show_bt_result(
+                get_state("result_loc"),
+                get_state("data_loc"),
+                get_state("params_loc") or _collect_params()
+            )
+
+        # ── T+1 시가 탭 ──────────────────────────────────
+        with bt_sub2:
+            if st.button("▶️ T+1 시가 백테스트", type="primary", use_container_width=True, key="bt_t1"):
+                r, d, p = _run_bt("NEXT_OPEN")
+                if r:
+                    set_state("result_t1", r)
+                    set_state("data_t1",   d)
+                    set_state("params_t1", p)
+            _show_bt_result(
+                get_state("result_t1"),
+                get_state("data_t1"),
+                get_state("params_t1") or _collect_params()
+            )
+
+        # ── 비교 탭 ──────────────────────────────────────
+        with bt_sub3:
+            r_loc = get_state("result_loc")
+            r_t1  = get_state("result_t1")
+
+            if r_loc is None or r_t1 is None:
+                st.info("LOC 종가와 T+1 시가 백테스트를 모두 실행하면 비교 결과가 표시됩니다.")
             else:
-                with st.spinner("백테스트 실행 중..."):
-                    result = run_backtest(data, p)
-                set_state("result", result)
-                set_state("data",   data)
-                set_state("params", p)
+                def _fmt(v):
+                    try: return f"{float(v):.1f}"
+                    except: return "-"
 
-        result: BacktestResult = get_state("result")
-        data   = get_state("data")
-        p_used: StrategyParams = get_state("params") or _collect_params()
+                comp = {
+                    "지표": ["수익률(%)", "B&H 수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수", "샤프 비율"],
+                    "LOC 종가": [
+                        _fmt(r_loc.total_return_pct), _fmt(r_loc.bh_return_pct),
+                        _fmt(r_loc.mdd_pct), _fmt(r_loc.win_rate_pct),
+                        f"{r_loc.profit_factor:.2f}", str(r_loc.total_trades),
+                        f"{sharpe_ratio(r_loc.asset_curve):.2f}",
+                    ],
+                    "T+1 시가": [
+                        _fmt(r_t1.total_return_pct), _fmt(r_t1.bh_return_pct),
+                        _fmt(r_t1.mdd_pct), _fmt(r_t1.win_rate_pct),
+                        f"{r_t1.profit_factor:.2f}", str(r_t1.total_trades),
+                        f"{sharpe_ratio(r_t1.asset_curve):.2f}",
+                    ],
+                }
+                comp_df = pd.DataFrame(comp)
 
-        if result and result.is_valid:
-            # ── 핵심 지표 (2줄 배치, HTML 카드) ─────────────
-            sr = sharpe_ratio(result.asset_curve)
-            cr = calmar_ratio(result.total_return_pct, result.mdd_pct)
+                def _highlight(row):
+                    styles = [""] * 3
+                    try:
+                        loc_v = float(str(row["LOC 종가"]).replace("%",""))
+                        t1_v  = float(str(row["T+1 시가"]).replace("%",""))
+                        better_loc = loc_v > t1_v if row["지표"] != "MDD(%)" else loc_v > t1_v
+                        if better_loc:
+                            styles[1] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                        else:
+                            styles[2] = "background-color:#1a3a2a; color:#26a69a; font-weight:600"
+                    except: pass
+                    return styles
 
-            def _card(label, value, delta=None):
-                delta_html = ""
-                if delta is not None:
-                    color = "#26a69a" if delta > 0 else "#ef5350"
-                    sign  = "▲" if delta > 0 else "▼"
-                    delta_html = f'<div style="font-size:11px;color:{color}">{sign} {abs(delta):.1f}%p vs B&H</div>'
-                return f"""
-                <div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
-                  <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
-                  <div style="font-size:16px;font-weight:600;color:#e0e0e0">{value}</div>
-                  {delta_html}
-                </div>"""
-
-            row1 = st.columns(4)
-            row2 = st.columns(4)
-
-            cards_r1 = [
-                ("📈 수익률",      format_result_metric(result.total_return_pct), result.total_return_pct - result.bh_return_pct),
-                ("📊 B&H 수익률", format_result_metric(result.bh_return_pct),     None),
-                ("📉 MDD",         format_result_metric(result.mdd_pct),           result.mdd_pct - result.bh_mdd_pct),
-                ("🎯 승률",         format_result_metric(result.win_rate_pct),      None),
-            ]
-            cards_r2 = [
-                ("⚡ Profit Factor", f"{result.profit_factor:.2f}",          None),
-                ("🔄 매매횟수",      f"{result.total_trades}회",               None),
-                ("📐 샤프 비율",     f"{sr:.2f}",                              None),
-                ("💰 최종 자산",     f"₩{result.asset_curve[-1]:,.0f}",       None),
-            ]
-
-            for col, (label, val, delta) in zip(row1, cards_r1):
-                col.markdown(_card(label, val, delta), unsafe_allow_html=True)
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            for col, (label, val, delta) in zip(row2, cards_r2):
-                col.markdown(_card(label, val, delta), unsafe_allow_html=True)
-
-            st.divider()
-
-            # ── 차트 ─────────────────────────────────────
-            st.subheader("📈 가격 & 시그널")
-            fig_price = _draw_price_chart(result.chart_data, result.trade_log, p_used)
-            st.plotly_chart(fig_price, use_container_width=True)
-
-            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-            st.subheader("💹 자산 곡선")
-            fig_equity = _draw_equity_chart(result, result.chart_data)
-            st.plotly_chart(fig_equity, use_container_width=True)
-
-            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-            st.subheader("🗓 월별 수익률 히트맵")
-            fig_heatmap = _draw_monthly_heatmap(result, result.chart_data)
-            st.plotly_chart(fig_heatmap, use_container_width=True)
-
-            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-            # ── 매매 내역 ─────────────────────────────────
-            st.subheader("📋 매매 내역")
-            if result.trade_log:
-                log_df = pd.DataFrame(result.trade_log)
-                log_df["날짜"] = pd.to_datetime(log_df["날짜"]).dt.strftime("%Y-%m-%d")
                 st.dataframe(
-                    log_df.style.map(
-                        lambda v: "color: #26a69a; font-weight:bold" if v == "BUY" else
-                                  "color: #ef5350; font-weight:bold" if v == "SELL" else "",
-                        subset=["신호"]
-                    ),
-                    use_container_width=True, hide_index=True,
+                    comp_df.style.apply(_highlight, axis=1),
+                    use_container_width=True, hide_index=True
                 )
 
-        elif result and result.error:
-            st.error(f"백테스트 실패: {result.error}")
+                # 자산곡선 비교
+                st.divider()
+                st.subheader("📈 자산 곡선 비교")
+                import plotly.graph_objects as go
+                d_loc = get_state("data_loc")
+                if d_loc:
+                    n_min = min(len(r_loc.asset_curve), len(r_t1.asset_curve))
+                    dates_cmp = pd.to_datetime(d_loc["base"]["Date"].values[-n_min:])
+                    loc_norm = r_loc.asset_curve[-n_min:] / r_loc.asset_curve[-n_min] * 100
+                    t1_norm  = r_t1.asset_curve[-n_min:]  / r_t1.asset_curve[-n_min]  * 100
+                    fig_cmp = go.Figure()
+                    fig_cmp.add_trace(go.Scatter(x=dates_cmp, y=loc_norm, name="LOC 종가", line=dict(color="#26a69a", width=2)))
+                    fig_cmp.add_trace(go.Scatter(x=dates_cmp, y=t1_norm,  name="T+1 시가", line=dict(color="#ff9800", width=2)))
+                    fig_cmp.update_layout(
+                        height=400, template="plotly_dark",
+                        yaxis_title="수익 지수 (시작=100)",
+                        legend=dict(orientation="h", y=1.02),
+                        margin=dict(l=0, r=0, t=30, b=0),
+                    )
+                    st.plotly_chart(fig_cmp, use_container_width=True)
 
 
 with tab4:
@@ -1225,6 +1307,14 @@ with tab4:
         )
 
         p_base = _collect_params()
+
+        opt_exec_mode = st.radio(
+            "⚙️ 최적화 체결 방식",
+            ["LOC 종가", "T+1 시가"],
+            horizontal=True, key="opt_exec_mode",
+            help="백테스트와 동일한 체결 방식으로 최적화해야 결과가 일치합니다."
+        )
+        p_base.execution_mode = "LOC" if opt_exec_mode == "LOC 종가" else "NEXT_OPEN"
 
         if st.button("🚀 최적화 시작", type="primary", use_container_width=True):
             prog_bar  = st.progress(0)
@@ -1453,12 +1543,20 @@ with tab5:
             fine_sl = st.checkbox("손절 범위 탐색", value=True, key="fine_sl")
             fine_tp = st.checkbox("익절 범위 탐색", value=True, key="fine_tp")
 
+            fine_exec_mode = st.radio(
+                "⚙️ 체결 방식",
+                ["LOC 종가", "T+1 시가"],
+                horizontal=True, key="fine_exec_mode",
+                help="백테스트와 동일한 방식으로 설정하세요."
+            )
+
             total_fine = fine_trials * fine_seeds
             st.info(f"⏱ 총 탐색: **{total_fine:,}회** ({fine_trials}회 × {fine_seeds}시드) — 현재 전략 파라미터 근처만 탐색")
 
             if st.button("🚀 미세조정 시작", type="primary", use_container_width=True, key="fine_btn"):
                 from modules.portfolio import preset_to_params
                 fine_p = preset_to_params(presets[fine_preset])
+                fine_p.execution_mode = "LOC" if fine_exec_mode == "LOC 종가" else "NEXT_OPEN"
 
                 prog_bar2  = st.progress(0)
                 status_ph2 = st.empty()
