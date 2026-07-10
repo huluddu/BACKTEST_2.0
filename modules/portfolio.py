@@ -305,17 +305,22 @@ def run_period_stress_test(
     year_list: list = [5, 10, 15, 20],
     progress_placeholder=None,
     execution_mode: str = "LOC",
+    direction: str = "backward",  # "backward" = 종료일 역산, "forward" = 시작일 순산
+    base_date=None,  # backward: 종료일, forward: 시작일 (None이면 오늘/사이드바 시작일)
 ) -> pd.DataFrame:
     """
-    각 전략을 5/10/15/20년 구간별로 백테스트해서 멀티인덱스 DataFrame 반환.
+    각 전략을 5/10/15/20년 구간별로 백테스트.
+    direction="backward": 종료일 기준 역산 (종료일~5년전, ~10년전 ...)
+    direction="forward":  시작일 기준 순산 (시작일~5년후, ~10년후 ...)
     """
-    today      = datetime.date.today()
-    data_list  = []
+    today     = datetime.date.today()
+    anchor    = pd.to_datetime(base_date).date() if base_date else today
+    data_list = []
     total_steps = len(presets) * len(year_list)
-    step        = 0
+    step = 0
 
     for name, preset_dict in presets.items():
-        p        = preset_to_params(preset_dict)
+        p = preset_to_params(preset_dict)
         p.execution_mode = execution_mode
         strategy_id = f"{name} ({p.trade_ticker})"
         row_data = {}
@@ -328,33 +333,41 @@ def run_period_stress_test(
                     text=f"[{name}] {yr}년 분석 중..."
                 )
 
-            start_d = today - datetime.timedelta(days=365 * yr)
+            if direction == "backward":
+                start_d = anchor - datetime.timedelta(days=365 * yr)
+                end_d   = anchor
+            else:  # forward
+                start_d = anchor
+                end_d   = anchor + datetime.timedelta(days=365 * yr)
+                end_d   = min(end_d, today)  # 미래는 오늘까지만
+
+            label = f"{yr}년↑" if direction == "forward" else f"{yr}년"
 
             try:
                 data = prepare_data(
                     p.signal_ticker, p.trade_ticker, p.market_ticker,
-                    start_d, today, p
+                    start_d, end_d, p
                 )
                 if data is None:
                     for cat in ["수익률", "MDD", "승률", "매매횟수"]:
-                        row_data[(cat, f"{yr}년")] = "-"
+                        row_data[(cat, label)] = "-"
                     continue
 
                 result = run_backtest(data, p)
 
-                # 실제 데이터 시작일 확인 (데이터가 yr년치에 못 미칠 수 있음)
                 real_start  = data["base"]["Date"].iloc[0].date()
-                years_avail = round((today - real_start).days / 365, 1)
+                real_end    = data["base"]["Date"].iloc[-1].date()
+                years_avail = round((real_end - real_start).days / 365, 1)
                 suffix      = f" ({years_avail}y)" if years_avail < (yr - 0.5) else ""
 
-                row_data[("수익률", f"{yr}년")] = f"{result.total_return_pct}%{suffix}"
-                row_data[("MDD",    f"{yr}년")] = f"{result.mdd_pct}%"
-                row_data[("승률",   f"{yr}년")] = f"{result.win_rate_pct}%"
-                row_data[("매매횟수", f"{yr}년")] = f"{result.total_trades}회"
+                row_data[("수익률",  label)] = f"{result.total_return_pct}%{suffix}"
+                row_data[("MDD",     label)] = f"{result.mdd_pct}%"
+                row_data[("승률",    label)] = f"{result.win_rate_pct}%"
+                row_data[("매매횟수",label)] = f"{result.total_trades}회"
 
-            except Exception as e:
+            except Exception:
                 for cat in ["수익률", "MDD", "승률", "매매횟수"]:
-                    row_data[(cat, f"{yr}년")] = "Err"
+                    row_data[(cat, label)] = "Err"
 
         row_data[("전략", "이름")] = strategy_id
         data_list.append(row_data)
@@ -370,11 +383,11 @@ def run_period_stress_test(
         df = df.set_index(("전략", "이름"))
         df.index.name = "전략명 (매매종목)"
 
-    # 컬럼 순서 정리
+    labels = [f"{yr}년↑" if direction == "forward" else f"{yr}년" for yr in year_list]
     desired = []
     for cat in ["수익률", "MDD", "승률", "매매횟수"]:
-        for yr in year_list:
-            desired.append((cat, f"{yr}년"))
+        for lbl in labels:
+            desired.append((cat, lbl))
     final_cols = [c for c in desired if c in df.columns]
 
     return df[final_cols] if final_cols else df
