@@ -968,15 +968,40 @@ with tab2:
             if not presets:
                 st.info("저장된 전략이 없습니다.")
             else:
-                if st.button("📊 구간별 성과 분석", type="primary", use_container_width=True):
-                    prog = st.progress(0)
-                    stress_df = run_period_stress_test(presets, progress_placeholder=prog,
-                                                      execution_mode=_preset_exec)
-                    set_state("stress_result", stress_df)
+                stress_bwd, stress_fwd = st.tabs([
+                    "⬅️ Backward (종료일 역산)",
+                    "➡️ Forward (시작일 순산)"
+                ])
 
-                stress = get_state("stress_result")
-                if stress is not None and not stress.empty:
-                    st.dataframe(stress, use_container_width=True)
+                with stress_bwd:
+                    st.caption(f"종료일({end_date}) 기준으로 과거 5/10/15/20년 성과")
+                    if st.button("📊 Backward 분석", type="primary",
+                                 use_container_width=True, key="stress_bwd_btn"):
+                        prog = st.progress(0)
+                        df_bwd = run_period_stress_test(
+                            presets, progress_placeholder=prog,
+                            execution_mode=_preset_exec,
+                            direction="backward", base_date=end_date,
+                        )
+                        set_state("stress_bwd", df_bwd)
+                    bwd = get_state("stress_bwd")
+                    if bwd is not None and not bwd.empty:
+                        st.dataframe(bwd, use_container_width=True)
+
+                with stress_fwd:
+                    st.caption(f"시작일({start_date}) 기준으로 미래 5/10/15/20년 성과")
+                    if st.button("📊 Forward 분석", type="primary",
+                                 use_container_width=True, key="stress_fwd_btn"):
+                        prog = st.progress(0)
+                        df_fwd = run_period_stress_test(
+                            presets, progress_placeholder=prog,
+                            execution_mode=_preset_exec,
+                            direction="forward", base_date=start_date,
+                        )
+                        set_state("stress_fwd", df_fwd)
+                    fwd = get_state("stress_fwd")
+                    if fwd is not None and not fwd.empty:
+                        st.dataframe(fwd, use_container_width=True)
 
         with sub3:
             if not presets:
