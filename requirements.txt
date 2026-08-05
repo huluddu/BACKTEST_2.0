@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.57.0
 pandas
 numpy
 plotly
@@ -7,3 +7,4 @@ finance-datareader
 optuna
 gspread
 google-auth
+starlette==0.41.3
