@@ -1143,6 +1143,157 @@ with tab3:
                         ),
                         use_container_width=True, hide_index=True,
                     )
+
+                st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+                # ── 드로우다운 회복 분석 ──────────────────
+                st.subheader("📉 드로우다운 회복 분석")
+
+                curve = result.asset_curve
+                if result.chart_data and "base" in result.chart_data:
+                    dd_dates = pd.to_datetime(result.chart_data["base"]["Date"].values)
+                    n_curve  = min(len(curve), len(dd_dates))
+                    curve    = curve[-n_curve:]
+                    dd_dates = dd_dates[-n_curve:]
+                else:
+                    dd_dates = pd.date_range(end=pd.Timestamp.today(), periods=len(curve))
+
+                # 드로우다운 곡선 계산
+                peak     = np.maximum.accumulate(curve)
+                dd_curve = (curve - peak) / peak * 100  # 음수
+
+                # 드로우다운 구간 추출
+                in_dd    = False
+                dd_start = None
+                dd_peak_val = 0
+                dd_trough_idx = 0
+                dd_records = []
+
+                for idx in range(len(dd_curve)):
+                    if dd_curve[idx] < 0:
+                        if not in_dd:
+                            in_dd    = True
+                            dd_start = idx
+                            dd_peak_val  = dd_curve[idx]
+                            dd_trough_idx = idx
+                        else:
+                            if dd_curve[idx] < dd_peak_val:
+                                dd_peak_val   = dd_curve[idx]
+                                dd_trough_idx = idx
+                    else:
+                        if in_dd:
+                            dd_records.append({
+                                "start_idx":   dd_start,
+                                "trough_idx":  dd_trough_idx,
+                                "end_idx":     idx,
+                                "drawdown":    dd_peak_val,
+                                "recovered":   True,
+                                "days":        idx - dd_start,
+                            })
+                            in_dd = False
+
+                # 마지막 구간이 회복 안 된 경우
+                if in_dd:
+                    dd_records.append({
+                        "start_idx":  dd_start,
+                        "trough_idx": dd_trough_idx,
+                        "end_idx":    len(dd_curve) - 1,
+                        "drawdown":   dd_peak_val,
+                        "recovered":  False,
+                        "days":       len(dd_curve) - 1 - dd_start,
+                    })
+
+                # 핵심 지표 카드
+                recovered = [r for r in dd_records if r["recovered"]]
+                avg_days  = round(np.mean([r["days"] for r in recovered])) if recovered else "-"
+                current_dd = dd_curve[-1]
+                mdd_idx   = int(np.argmin(dd_curve))
+
+                def _dd_card(label, value, color="#e0e0e0"):
+                    return f"""<div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
+                      <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
+                      <div style="font-size:16px;font-weight:600;color:{color}">{value}</div>
+                    </div>"""
+
+                mdd_rec = next((r for r in dd_records if r["trough_idx"] == mdd_idx), None)
+                mdd_start_date    = dd_dates[mdd_rec["start_idx"]].strftime("%Y-%m-%d") if mdd_rec else "-"
+                mdd_trough_date   = dd_dates[mdd_idx].strftime("%Y-%m-%d")
+                mdd_recover_date  = dd_dates[mdd_rec["end_idx"]].strftime("%Y-%m-%d") if (mdd_rec and mdd_rec["recovered"]) else "미회복"
+                mdd_days          = mdd_rec["days"] if mdd_rec else "-"
+
+                dcol1, dcol2, dcol3, dcol4 = st.columns(4)
+                dcol1.markdown(_dd_card("📉 최대 낙폭(MDD)",   f"{result.mdd_pct:.1f}%", "#ef5350"), unsafe_allow_html=True)
+                dcol2.markdown(_dd_card("📅 MDD 저점일",       mdd_trough_date), unsafe_allow_html=True)
+                dcol3.markdown(_dd_card("🔄 MDD 회복일",       mdd_recover_date, "#26a69a" if mdd_recover_date != "미회복" else "#ff9800"), unsafe_allow_html=True)
+                dcol4.markdown(_dd_card("⏱ 평균 회복 소요일",  f"{avg_days}일" if avg_days != "-" else "-"), unsafe_allow_html=True)
+
+                st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+                dcol5, dcol6 = st.columns(2)
+                dcol5.markdown(_dd_card("📊 드로우다운 구간 수", f"{len(dd_records)}회"), unsafe_allow_html=True)
+                dcol6.markdown(_dd_card("📍 현재 드로우다운",
+                    f"{current_dd:.1f}%",
+                    "#ef5350" if current_dd < -5 else "#26a69a" if current_dd == 0 else "#ff9800"
+                ), unsafe_allow_html=True)
+
+                st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+                # 드로우다운 곡선 차트
+                import plotly.graph_objects as go
+                fig_dd = go.Figure()
+                fig_dd.add_trace(go.Scatter(
+                    x=dd_dates, y=dd_curve,
+                    fill="tozeroy",
+                    fillcolor="rgba(239,83,80,0.25)",
+                    line=dict(color="#ef5350", width=1.5),
+                    name="드로우다운",
+                ))
+                # MDD 포인트 표시
+                fig_dd.add_trace(go.Scatter(
+                    x=[dd_dates[mdd_idx]], y=[dd_curve[mdd_idx]],
+                    mode="markers+text",
+                    marker=dict(color="#ff1744", size=10, symbol="circle"),
+                    text=[f"MDD {dd_curve[mdd_idx]:.1f}%"],
+                    textposition="bottom center",
+                    name="MDD",
+                    showlegend=False,
+                ))
+                fig_dd.update_layout(
+                    height=280, template="plotly_dark",
+                    yaxis_title="드로우다운 (%)",
+                    yaxis=dict(ticksuffix="%"),
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_dd, use_container_width=True)
+
+                st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+                # 드로우다운 구간 테이블
+                if dd_records:
+                    dd_table = []
+                    for i, r in enumerate(sorted(dd_records, key=lambda x: x["drawdown"])[:10]):
+                        dd_table.append({
+                            "#":      i + 1,
+                            "시작일":   dd_dates[r["start_idx"]].strftime("%Y-%m-%d"),
+                            "저점일":   dd_dates[r["trough_idx"]].strftime("%Y-%m-%d"),
+                            "회복일":   dd_dates[r["end_idx"]].strftime("%Y-%m-%d") if r["recovered"] else "미회복",
+                            "낙폭(%)":  round(r["drawdown"], 1),
+                            "회복(일)": r["days"] if r["recovered"] else "-",
+                            "상태":     "✅ 회복" if r["recovered"] else "⏳ 진행중",
+                        })
+                    dd_tbl_df = pd.DataFrame(dd_table)
+
+                    def _dd_style(val):
+                        if val == "✅ 회복":   return "color:#26a69a"
+                        if val == "⏳ 진행중": return "color:#ff9800"
+                        if isinstance(val, float) and val < 0: return "color:#ef5350"
+                        return ""
+
+                    st.dataframe(
+                        dd_tbl_df.style.map(_dd_style, subset=["상태", "낙폭(%)"]),
+                        use_container_width=True, hide_index=True,
+                    )
             elif result and result.error:
                 st.error(f"백테스트 실패: {result.error}")
 
