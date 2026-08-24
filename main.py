@@ -2165,15 +2165,15 @@ with tab7:
 with tab8:
     if tab8.open:
         from modules.validation import (
-            run_walk_forward, run_cross_validation,
-            WalkForwardResult, CrossValidationResult,
+            run_walk_forward,
+            WalkForwardResult,
         )
         from modules.optimizer import OptimizeConstraints
 
         st.header("🔍 전략 검증")
         st.caption("Walk-Forward Analysis와 다종목 교차 검증으로 전략의 실전 유효성을 확인합니다.")
 
-        val_sub1, val_sub2 = st.tabs(["📊 Walk-Forward Analysis", "🔀 다종목 교차 검증"])
+        val_sub1, val_sub2 = st.tabs(["📊 Walk-Forward Analysis", "🎛 파라미터 민감도 분석"])
 
         # ── Walk-Forward Analysis ─────────────────────────
         with val_sub1:
@@ -2350,116 +2350,120 @@ with tab8:
                     use_container_width=True, hide_index=True
                 )
 
-        # ── 다종목 교차 검증 ──────────────────────────────
+        # ── 파라미터 민감도 분석 ──────────────────────────
         with val_sub2:
-            st.subheader("🔀 다종목 교차 검증")
-            st.caption("현재 사이드바 전략 파라미터를 다른 종목에 그대로 적용해서 범용성을 확인합니다.")
+            from modules.validation import run_sensitivity_analysis, make_sensitivity_configs
 
-            cv_tickers = st.text_input(
-                "검증할 티커 (쉼표로 구분)",
-                value="TQQQ,UPRO,TECL,FNGU",
-                key="cv_tickers"
-            )
-            cv_exec_mode = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
-                                     horizontal=True, key="cv_exec")
+            st.subheader("🎛 파라미터 민감도 분석")
+            st.caption("각 파라미터를 변화시키며 수익률이 얼마나 민감하게 반응하는지 확인합니다. 둔감할수록 강건한 전략입니다.")
 
-            if st.button("🚀 교차 검증 실행", type="primary",
-                         use_container_width=True, key="cv_run"):
-                ticker_list = [t.strip().upper() for t in cv_tickers.split(",") if t.strip()]
+            sv_exec_mode = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
+                                    horizontal=True, key="sv_exec")
 
-                p_cv = _collect_params()
-                p_cv.execution_mode = "LOC" if cv_exec_mode == "LOC 종가" else "NEXT_OPEN"
+            if st.button("🚀 민감도 분석 실행", type="primary",
+                         use_container_width=True, key="sv_run"):
+                p_sv = _collect_params()
+                p_sv.execution_mode = "LOC" if sv_exec_mode == "LOC 종가" else "NEXT_OPEN"
 
-                # 현재 전략 원래 티커도 포함
-                orig_ticker = p_cv.trade_ticker
-                if orig_ticker not in ticker_list:
-                    ticker_list = [orig_ticker] + ticker_list
-
-                prog_cv   = st.progress(0)
-                status_cv = st.empty()
-
-                def _cv_cb(cur, total, msg=""):
-                    prog_cv.progress(int(cur / total * 100) if total > 0 else 0)
-                    status_cv.caption(f"⏳ {msg}")
-
-                with st.spinner("교차 검증 실행 중..."):
-                    cv_result = run_cross_validation(
-                        tickers     = ticker_list,
-                        start_date  = start_date,
-                        end_date    = end_date,
-                        base_params = p_cv,
-                        progress_cb = _cv_cb,
+                with st.spinner("데이터 로드 중..."):
+                    data_sv = prepare_data(
+                        p_sv.signal_ticker, p_sv.trade_ticker,
+                        p_sv.market_ticker, start_date, end_date, p_sv
                     )
 
-                prog_cv.empty()
-                status_cv.empty()
-                set_state("cv_result", cv_result)
-                set_state("cv_orig_ticker", orig_ticker)
-
-            cv_res      = get_state("cv_result")
-            cv_orig_tkr = get_state("cv_orig_ticker", "")
-
-            if cv_res and cv_res.is_valid:
-                st.divider()
-
-                completed = [r for r in cv_res.rows if r.get("상태") == "완료"]
-                if not completed:
-                    st.warning("완료된 결과가 없습니다.")
+                if data_sv is None:
+                    st.error("데이터 로드 실패")
                 else:
-                    cv_df = pd.DataFrame(completed).drop(columns=["상태"], errors="ignore")
+                    configs = make_sensitivity_configs(p_sv)
 
-                    # 원래 티커 강조
-                    def _cv_style(row):
-                        styles = [""] * len(row)
-                        if row.get("티커") == cv_orig_tkr:
-                            return ["background-color:#1a2a3a"] * len(row)
-                        try:
-                            ret_idx = list(row.index).index("수익률(%)")
-                            v = float(row.iloc[ret_idx])
-                            if v > 0: styles[ret_idx] = "color:#26a69a; font-weight:600"
-                            else:     styles[ret_idx] = "color:#ef5350; font-weight:600"
-                        except: pass
-                        return styles
+                    prog_sv   = st.progress(0)
+                    status_sv = st.empty()
 
-                    st.dataframe(
-                        cv_df.style.apply(_cv_style, axis=1),
-                        use_container_width=True, hide_index=True
+                    def _sv_cb(cur, total, msg=""):
+                        prog_sv.progress(int(cur / total * 100) if total > 0 else 0)
+                        status_sv.caption(f"⏳ {msg}")
+
+                    with st.spinner("민감도 분석 중..."):
+                        sv_results = run_sensitivity_analysis(
+                            data_full       = data_sv,
+                            base_params     = p_sv,
+                            params_to_test  = configs,
+                            progress_cb     = _sv_cb,
+                        )
+
+                    prog_sv.empty()
+                    status_sv.empty()
+                    set_state("sv_results",     sv_results)
+                    set_state("sv_base_params", p_sv)
+
+            sv_results = get_state("sv_results")
+            p_sv_saved = get_state("sv_base_params")
+
+            if sv_results:
+                st.divider()
+                import plotly.graph_objects as go
+                from plotly.subplots import make_subplots
+
+                # 민감도 요약 테이블
+                sv_summary = []
+                for r in sv_results:
+                    if not r.is_valid: continue
+                    valid_rets = [v for v in r.returns if v is not None]
+                    sv_summary.append({
+                        "파라미터":      r.param_name,
+                        "현재값":        getattr(p_sv_saved, r.param_name, "-") if p_sv_saved else "-",
+                        "수익률 범위":   f"{min(valid_rets):.1f}% ~ {max(valid_rets):.1f}%",
+                        "표준편차":      f"{r.sensitivity:.1f}%p",
+                        "민감도":        "🔴 높음" if r.sensitivity > 30 else "🟡 보통" if r.sensitivity > 10 else "🟢 낮음",
+                    })
+
+                if sv_summary:
+                    st.markdown("##### 📋 파라미터별 민감도 요약")
+                    st.dataframe(pd.DataFrame(sv_summary), use_container_width=True, hide_index=True)
+                    st.caption("🟢 낮음: 강건한 전략  🟡 보통: 주의  🔴 높음: 과적합 의심")
+                    st.divider()
+
+                # 파라미터별 수익률 차트
+                st.markdown("##### 📈 파라미터별 수익률 변화")
+                for r in sv_results:
+                    if not r.is_valid: continue
+                    valid_pairs = [(v, ret) for v, ret in zip(r.values, r.returns) if ret is not None]
+                    if not valid_pairs: continue
+                    xs, ys = zip(*valid_pairs)
+
+                    # 현재 파라미터 값
+                    cur_val = getattr(p_sv_saved, r.param_name, None) if p_sv_saved else None
+
+                    fig_sv = go.Figure()
+                    colors = ["#26a69a" if y > 0 else "#ef5350" for y in ys]
+                    fig_sv.add_trace(go.Bar(
+                        x=[str(x) for x in xs], y=list(ys),
+                        marker_color=colors,
+                        text=[f"{y:.1f}%" for y in ys],
+                        textposition="outside",
+                    ))
+                    # 기준선 (기본 수익률)
+                    fig_sv.add_hline(
+                        y=r.base_return, line_color="#ffeb3b",
+                        line_dash="dash",
+                        annotation_text=f"현재 {r.base_return:.1f}%",
+                        annotation_position="top right",
                     )
+                    # 현재 파라미터 강조
+                    if cur_val is not None and cur_val in xs:
+                        cur_idx = list(xs).index(cur_val)
+                        fig_sv.add_vline(
+                            x=str(cur_val), line_color="#ffffff",
+                            line_width=2, line_dash="dot",
+                        )
 
-                    # 수익률 비교 차트
-                    import plotly.graph_objects as go
-                    fig_cv = go.Figure()
-                    for _, row in cv_df.iterrows():
-                        try:
-                            ticker = row["티커"]
-                            ret    = float(row["수익률(%)"])
-                            bh     = float(row["B&H(%)"])
-                            color  = "#ffeb3b" if ticker == cv_orig_tkr else "#26a69a" if ret > 0 else "#ef5350"
-                            fig_cv.add_trace(go.Bar(
-                                name=ticker, x=[ticker],
-                                y=[ret], marker_color=color,
-                                text=[f"{ret:.1f}%"], textposition="outside",
-                            ))
-                        except: pass
-
-                    fig_cv.update_layout(
-                        height=350, template="plotly_dark",
+                    color_label = "🟢 낮음" if r.sensitivity <= 10 else "🟡 보통" if r.sensitivity <= 30 else "🔴 높음"
+                    fig_sv.update_layout(
+                        title=f"{r.param_name}  |  표준편차 {r.sensitivity:.1f}%p  {color_label}",
+                        height=280, template="plotly_dark",
                         yaxis_title="수익률 (%)",
                         showlegend=False,
-                        margin=dict(l=0, r=0, t=20, b=0),
+                        margin=dict(l=0, r=0, t=40, b=0),
                     )
-                    st.plotly_chart(fig_cv, use_container_width=True)
-
-                    # 범용성 판정
-                    rets = []
-                    for r in completed:
-                        try: rets.append(float(r["수익률(%)"]))
-                        except: pass
-                    if rets:
-                        pos_rate = sum(1 for r in rets if r > 0) / len(rets) * 100
-                        if pos_rate >= 70:
-                            st.success(f"✅ {len(completed)}개 종목 중 {sum(1 for r in rets if r > 0)}개에서 수익 ({pos_rate:.0f}%). 범용성 높은 전략입니다.")
-                        elif pos_rate >= 50:
-                            st.warning(f"⚠️ {len(completed)}개 종목 중 {sum(1 for r in rets if r > 0)}개에서 수익 ({pos_rate:.0f}%). 일부 종목에 편향될 수 있습니다.")
-                        else:
-                            st.error(f"❌ {len(completed)}개 종목 중 {sum(1 for r in rets if r > 0)}개에서 수익 ({pos_rate:.0f}%). 특정 종목 전용 전략일 가능성 높습니다.")
+                    st.plotly_chart(fig_sv, use_container_width=True)
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
