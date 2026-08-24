@@ -816,7 +816,7 @@ def _draw_monthly_heatmap(result: BacktestResult, chart_data: dict) -> go.Figure
 # 메인 탭 구성
 # ══════════════════════════════════════════════════════════
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📡 오늘의 시그널",
     "📋 전략 프리셋",
     "🔬 백테스트",
@@ -824,6 +824,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎯 전략 미세조정",
     "📊 구간 스트레스",
     "♾️ 무한매수 비교",
+    "🔍 전략 검증",
 ], on_change="rerun")
 
 
@@ -2156,3 +2157,309 @@ with tab7:
                     cyc_df.style.map(_cyc_color, subset=["결과"]),
                     use_container_width=True, hide_index=True
                 )
+
+
+# ══════════════════════════════════════════════════════════
+# Tab 8: 전략 검증
+# ══════════════════════════════════════════════════════════
+with tab8:
+    if tab8.open:
+        from modules.validation import (
+            run_walk_forward, run_cross_validation,
+            WalkForwardResult, CrossValidationResult,
+        )
+        from modules.optimizer import OptimizeConstraints
+
+        st.header("🔍 전략 검증")
+        st.caption("Walk-Forward Analysis와 다종목 교차 검증으로 전략의 실전 유효성을 확인합니다.")
+
+        val_sub1, val_sub2 = st.tabs(["📊 Walk-Forward Analysis", "🔀 다종목 교차 검증"])
+
+        # ── Walk-Forward Analysis ─────────────────────────
+        with val_sub1:
+            st.subheader("📊 Walk-Forward Analysis")
+            st.caption("전체 기간을 여러 윈도우로 나눠 매번 최적화 → 검증을 반복합니다. 미래를 모른 상태에서의 실전 성과를 시뮬레이션합니다.")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                wf_is_months  = st.number_input("최적화 구간 (개월)", 6, 60, 24, 6, key="wf_is")
+                wf_oos_months = st.number_input("검증 구간 (개월)",   3, 24,  6, 3, key="wf_oos")
+            with col2:
+                wf_step       = st.number_input("스텝 (개월)",        3, 12,  6, 3, key="wf_step")
+                wf_trials     = st.number_input("윈도우당 탐색 횟수", 30, 500, 100, 10, key="wf_trials")
+            with col3:
+                wf_seeds      = st.slider("시드 수", 1, 5, 2, key="wf_seeds")
+                wf_min_trades = st.slider("최소 매매 횟수", 1, 20, 3, key="wf_min_trades")
+                wf_exec_mode  = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
+                                         horizontal=True, key="wf_exec")
+
+            # 윈도우 개수 미리 계산
+            _wf_start = pd.to_datetime(start_date)
+            _wf_end   = pd.to_datetime(end_date)
+            _cur = _wf_start
+            _n_win = 0
+            while True:
+                _oos_end = _cur + pd.DateOffset(months=wf_is_months + wf_oos_months)
+                if _oos_end > _wf_end: break
+                _n_win += 1
+                _cur += pd.DateOffset(months=wf_step)
+            st.info(f"⏱ 예상 윈도우 수: **{_n_win}개** × 탐색 {wf_trials}회 × {wf_seeds}시드 = **{_n_win * wf_trials * wf_seeds:,}회** 탐색")
+
+            if st.button("🚀 Walk-Forward 실행", type="primary",
+                         use_container_width=True, key="wf_run"):
+                p_wf = _collect_params()
+                p_wf.execution_mode = "LOC" if wf_exec_mode == "LOC 종가" else "NEXT_OPEN"
+
+                prog_ph   = st.progress(0)
+                status_ph = st.empty()
+
+                def _wf_cb(cur, total, msg=""):
+                    prog_ph.progress(int(cur / total * 100) if total > 0 else 0)
+                    status_ph.caption(f"⏳ {msg}")
+
+                # ss_config: 현재 탭4 설정 재사용 (기본값)
+                _ss_config = {
+                    "trend_buy":  "fixed" if p_wf.use_trend_buy  else "off",
+                    "trend_sell": "fixed" if p_wf.use_trend_sell else "off",
+                    "rsi":        "fixed" if p_wf.use_rsi_filter  else "off",
+                    "macd":       "fixed" if p_wf.use_macd        else "off",
+                    "atr":        "fixed" if p_wf.use_atr_stop    else "off",
+                }
+
+                with st.spinner("Walk-Forward 실행 중..."):
+                    wf_result = run_walk_forward(
+                        signal_ticker = p_wf.signal_ticker,
+                        trade_ticker  = p_wf.trade_ticker,
+                        market_ticker = p_wf.market_ticker,
+                        start_date    = start_date,
+                        end_date      = end_date,
+                        base_params   = p_wf,
+                        ss_config     = _ss_config,
+                        constraints   = OptimizeConstraints(min_trades=wf_min_trades),
+                        is_months     = int(wf_is_months),
+                        oos_months    = int(wf_oos_months),
+                        step_months   = int(wf_step),
+                        n_trials      = int(wf_trials),
+                        n_seeds       = int(wf_seeds),
+                        progress_cb   = _wf_cb,
+                    )
+
+                prog_ph.empty()
+                status_ph.empty()
+                set_state("wf_result", wf_result)
+
+            wf_res = get_state("wf_result")
+            if wf_res and wf_res.is_valid:
+                st.divider()
+
+                # 핵심 지표
+                col1, col2, col3, col4 = st.columns(4)
+                def _wf_card(label, value, color="#e0e0e0"):
+                    return f"""<div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
+                      <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
+                      <div style="font-size:16px;font-weight:600;color:{color}">{value}</div></div>"""
+
+                col1.markdown(_wf_card("OOS 평균 수익률",
+                    f"{wf_res.avg_oos_return}%",
+                    "#26a69a" if wf_res.avg_oos_return > 0 else "#ef5350"
+                ), unsafe_allow_html=True)
+                col2.markdown(_wf_card("OOS 수익률 표준편차", f"{wf_res.std_oos_return}%"), unsafe_allow_html=True)
+                col3.markdown(_wf_card("OOS 수익 구간 비율",
+                    f"{wf_res.win_rate}%",
+                    "#26a69a" if wf_res.win_rate >= 60 else "#ff9800" if wf_res.win_rate >= 40 else "#ef5350"
+                ), unsafe_allow_html=True)
+                col4.markdown(_wf_card("OOS 복리 누적 수익률",
+                    f"{wf_res.total_oos_return}%",
+                    "#26a69a" if wf_res.total_oos_return > 0 else "#ef5350"
+                ), unsafe_allow_html=True)
+
+                st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+                # 판정
+                if wf_res.avg_oos_return > 0 and wf_res.win_rate >= 60:
+                    st.success("✅ 전략이 OOS 구간에서도 일관되게 수익을 냈습니다. 과적합 가능성 낮음.")
+                elif wf_res.avg_oos_return > 0 and wf_res.win_rate >= 40:
+                    st.warning("⚠️ OOS 수익은 있지만 일관성이 낮습니다. 추가 검증 권장.")
+                else:
+                    st.error("❌ OOS 구간에서 수익이 불안정합니다. 과적합 가능성 높음.")
+
+                st.divider()
+
+                # OOS 수익률 바 차트
+                import plotly.graph_objects as go
+                oos_labels = [f"W{i+1}" for i in range(len(wf_res.oos_returns))]
+                colors     = ["#26a69a" if r > 0 else "#ef5350" for r in wf_res.oos_returns]
+                fig_wf = go.Figure(go.Bar(
+                    x=oos_labels, y=wf_res.oos_returns,
+                    marker_color=colors, name="OOS 수익률"
+                ))
+                fig_wf.add_hline(y=0, line_color="white", line_width=1)
+                fig_wf.add_hline(y=wf_res.avg_oos_return,
+                                 line_color="#ffeb3b", line_dash="dash",
+                                 annotation_text=f"평균 {wf_res.avg_oos_return}%")
+                fig_wf.update_layout(
+                    height=300, template="plotly_dark",
+                    yaxis_title="OOS 수익률 (%)",
+                    margin=dict(l=0, r=0, t=20, b=0),
+                )
+                st.plotly_chart(fig_wf, use_container_width=True)
+
+                # 윈도우별 상세 테이블
+                st.subheader("📋 윈도우별 상세 결과")
+                wf_rows = []
+                for i, w in enumerate(wf_res.windows):
+                    if w.get("status") != "완료":
+                        wf_rows.append({
+                            "W": i+1,
+                            "IS 기간": f"{w['is_start']} ~ {w['is_end']}",
+                            "OOS 기간": f"{w['oos_start']} ~ {w['oos_end']}",
+                            "IS 수익률(%)": "-",
+                            "OOS 수익률(%)": "-",
+                            "OOS MDD(%)": "-",
+                            "OOS 매매": "-",
+                            "최적 MA매수": "-",
+                            "최적 MA매도": "-",
+                            "상태": w.get("status", "-"),
+                        })
+                    else:
+                        wf_rows.append({
+                            "W": i+1,
+                            "IS 기간": f"{w['is_start']} ~ {w['is_end']}",
+                            "OOS 기간": f"{w['oos_start']} ~ {w['oos_end']}",
+                            "IS 수익률(%)": w.get("is_return", "-"),
+                            "OOS 수익률(%)": w.get("oos_return", "-"),
+                            "OOS MDD(%)": w.get("oos_mdd", "-"),
+                            "OOS 매매": w.get("oos_trades", "-"),
+                            "최적 MA매수": w.get("ma_buy", "-"),
+                            "최적 MA매도": w.get("ma_sell", "-"),
+                            "상태": "✅",
+                        })
+
+                wf_df = pd.DataFrame(wf_rows)
+
+                def _wf_color(val):
+                    try:
+                        v = float(val)
+                        if v > 0: return "color:#26a69a"
+                        if v < 0: return "color:#ef5350"
+                    except: pass
+                    return ""
+
+                st.dataframe(
+                    wf_df.style.map(_wf_color, subset=["IS 수익률(%)", "OOS 수익률(%)", "OOS MDD(%)"]),
+                    use_container_width=True, hide_index=True
+                )
+
+        # ── 다종목 교차 검증 ──────────────────────────────
+        with val_sub2:
+            st.subheader("🔀 다종목 교차 검증")
+            st.caption("현재 사이드바 전략 파라미터를 다른 종목에 그대로 적용해서 범용성을 확인합니다.")
+
+            cv_tickers = st.text_input(
+                "검증할 티커 (쉼표로 구분)",
+                value="TQQQ,UPRO,TECL,FNGU",
+                key="cv_tickers"
+            )
+            cv_exec_mode = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
+                                     horizontal=True, key="cv_exec")
+
+            if st.button("🚀 교차 검증 실행", type="primary",
+                         use_container_width=True, key="cv_run"):
+                ticker_list = [t.strip().upper() for t in cv_tickers.split(",") if t.strip()]
+
+                p_cv = _collect_params()
+                p_cv.execution_mode = "LOC" if cv_exec_mode == "LOC 종가" else "NEXT_OPEN"
+
+                # 현재 전략 원래 티커도 포함
+                orig_ticker = p_cv.trade_ticker
+                if orig_ticker not in ticker_list:
+                    ticker_list = [orig_ticker] + ticker_list
+
+                prog_cv   = st.progress(0)
+                status_cv = st.empty()
+
+                def _cv_cb(cur, total, msg=""):
+                    prog_cv.progress(int(cur / total * 100) if total > 0 else 0)
+                    status_cv.caption(f"⏳ {msg}")
+
+                with st.spinner("교차 검증 실행 중..."):
+                    cv_result = run_cross_validation(
+                        tickers     = ticker_list,
+                        start_date  = start_date,
+                        end_date    = end_date,
+                        base_params = p_cv,
+                        progress_cb = _cv_cb,
+                    )
+
+                prog_cv.empty()
+                status_cv.empty()
+                set_state("cv_result", cv_result)
+                set_state("cv_orig_ticker", orig_ticker)
+
+            cv_res      = get_state("cv_result")
+            cv_orig_tkr = get_state("cv_orig_ticker", "")
+
+            if cv_res and cv_res.is_valid:
+                st.divider()
+
+                completed = [r for r in cv_res.rows if r.get("상태") == "완료"]
+                if not completed:
+                    st.warning("완료된 결과가 없습니다.")
+                else:
+                    cv_df = pd.DataFrame(completed).drop(columns=["상태"], errors="ignore")
+
+                    # 원래 티커 강조
+                    def _cv_style(row):
+                        styles = [""] * len(row)
+                        if row.get("티커") == cv_orig_tkr:
+                            return ["background-color:#1a2a3a"] * len(row)
+                        try:
+                            ret_idx = list(row.index).index("수익률(%)")
+                            v = float(row.iloc[ret_idx])
+                            if v > 0: styles[ret_idx] = "color:#26a69a; font-weight:600"
+                            else:     styles[ret_idx] = "color:#ef5350; font-weight:600"
+                        except: pass
+                        return styles
+
+                    st.dataframe(
+                        cv_df.style.apply(_cv_style, axis=1),
+                        use_container_width=True, hide_index=True
+                    )
+
+                    # 수익률 비교 차트
+                    import plotly.graph_objects as go
+                    fig_cv = go.Figure()
+                    for _, row in cv_df.iterrows():
+                        try:
+                            ticker = row["티커"]
+                            ret    = float(row["수익률(%)"])
+                            bh     = float(row["B&H(%)"])
+                            color  = "#ffeb3b" if ticker == cv_orig_tkr else "#26a69a" if ret > 0 else "#ef5350"
+                            fig_cv.add_trace(go.Bar(
+                                name=ticker, x=[ticker],
+                                y=[ret], marker_color=color,
+                                text=[f"{ret:.1f}%"], textposition="outside",
+                            ))
+                        except: pass
+
+                    fig_cv.update_layout(
+                        height=350, template="plotly_dark",
+                        yaxis_title="수익률 (%)",
+                        showlegend=False,
+                        margin=dict(l=0, r=0, t=20, b=0),
+                    )
+                    st.plotly_chart(fig_cv, use_container_width=True)
+
+                    # 범용성 판정
+                    rets = []
+                    for r in completed:
+                        try: rets.append(float(r["수익률(%)"]))
+                        except: pass
+                    if rets:
+                        pos_rate = sum(1 for r in rets if r > 0) / len(rets) * 100
+                        if pos_rate >= 70:
+                            st.success(f"✅ {len(completed)}개 종목 중 {sum(1 for r in rets if r > 0)}개에서 수익 ({pos_rate:.0f}%). 범용성 높은 전략입니다.")
+                        elif pos_rate >= 50:
+                            st.warning(f"⚠️ {len(completed)}개 종목 중 {sum(1 for r in rets if r > 0)}개에서 수익 ({pos_rate:.0f}%). 일부 종목에 편향될 수 있습니다.")
+                        else:
+                            st.error(f"❌ {len(completed)}개 종목 중 {sum(1 for r in rets if r > 0)}개에서 수익 ({pos_rate:.0f}%). 특정 종목 전용 전략일 가능성 높습니다.")
