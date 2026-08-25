@@ -1,21 +1,15 @@
 """
 validation.py - 전략 검증 모듈
-1. Walk-Forward Analysis
+1. 구간별 유효성 검증 (현재 전략 파라미터 고정)
 2. 파라미터 민감도 분석
 """
-import copy, random, numpy as np, pandas as pd, optuna, datetime
+import copy, numpy as np, pandas as pd, datetime
 from dataclasses import dataclass, field
 from .engine import StrategyParams, prepare_data, run_backtest
-from .optimizer import (
-    OptimizeConstraints, _MA_REDUCED, _OFF_REDUCED,
-    _build_params_from_trial, _params_from_trial_params,
-)
-
-optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
 # ══════════════════════════════════════════════════════════
-# 1. Walk-Forward Analysis
+# 1. 구간별 유효성 검증
 # ══════════════════════════════════════════════════════════
 
 @dataclass
@@ -36,130 +30,81 @@ def run_walk_forward(
     start_date,
     end_date,
     base_params:   StrategyParams,
-    ss_config:     dict,
-    constraints:   OptimizeConstraints,
-    is_months:     int = 24,
-    oos_months:    int = 6,
-    step_months:   int = 6,
-    n_trials:      int = 100,
-    n_seeds:       int = 2,
+    window_months: int = 12,   # 각 구간 길이 (개월)
+    step_months:   int = 6,    # 스텝 (개월)
     progress_cb    = None,
 ) -> WalkForwardResult:
-
+    """
+    현재 파라미터를 고정한 채로 구간별 백테스트.
+    "내 전략이 어느 시기에도 통하는가" 검증.
+    """
     start_dt = pd.to_datetime(start_date)
     end_dt   = pd.to_datetime(end_date)
 
+    # 구간 생성
     windows = []
     cur = start_dt
     while True:
-        is_end   = cur + pd.DateOffset(months=is_months)
-        oos_end  = is_end + pd.DateOffset(months=oos_months)
-        if oos_end > end_dt:
+        win_end = cur + pd.DateOffset(months=window_months)
+        if win_end > end_dt:
             break
         windows.append({
-            "is_start":  cur.date(),
-            "is_end":    is_end.date(),
-            "oos_start": is_end.date(),
-            "oos_end":   oos_end.date(),
+            "start": cur.date(),
+            "end":   win_end.date(),
         })
         cur += pd.DateOffset(months=step_months)
 
     if not windows:
         return WalkForwardResult(is_valid=False)
 
-    total_steps = len(windows)
+    total = len(windows)
     results = []
 
     for wi, w in enumerate(windows):
         if progress_cb:
-            progress_cb(wi, total_steps, f"윈도우 {wi+1}/{total_steps}: {w['is_start']} ~ {w['oos_end']}")
+            progress_cb(wi, total, f"구간 {wi+1}/{total}: {w['start']} ~ {w['end']}")
 
-        data_is = prepare_data(
-            signal_ticker, trade_ticker, market_ticker,
-            w["is_start"], w["is_end"], base_params
-        )
-        if data_is is None or len(data_is["base"]) < 60:
-            results.append({**w, "best_params": None, "is_return": None,
-                            "oos_return": None, "status": "데이터 부족"})
-            continue
+        try:
+            data = prepare_data(
+                signal_ticker, trade_ticker, market_ticker,
+                w["start"], w["end"], base_params
+            )
+            if data is None or len(data["base"]) < 20:
+                results.append({**w, "return": None, "mdd": None,
+                                "trades": None, "winrate": None, "status": "데이터 부족"})
+                continue
 
-        best_params = None
-        best_score  = -999.0
-        seeds = [random.randint(0, 99999) for _ in range(n_seeds)]
+            res = run_backtest(data, base_params)
+            if not res.is_valid:
+                results.append({**w, "return": None, "mdd": None,
+                                "trades": None, "winrate": None, "status": "실패"})
+                continue
 
-        for seed in seeds:
-            sampler = optuna.samplers.TPESampler(seed=seed)
-            study   = optuna.create_study(direction="maximize", sampler=sampler)
+            results.append({
+                **w,
+                "return":  round(res.total_return_pct, 1),
+                "mdd":     round(res.mdd_pct, 1),
+                "trades":  res.total_trades,
+                "winrate": round(res.win_rate_pct, 1),
+                "bh":      round(res.bh_return_pct, 1),
+                "status":  "완료",
+            })
 
-            def objective(trial, _data=data_is, _base=base_params):
-                try:
-                    p = _build_params_from_trial(
-                        trial, _base, ss_config, False,
-                        _MA_REDUCED, _OFF_REDUCED
-                    )
-                    res = run_backtest(_data, p)
-                    if not res.is_valid or res.total_trades < constraints.min_trades:
-                        raise optuna.TrialPruned()
-                    if constraints.max_mdd > 0 and abs(res.mdd_pct or 0) > constraints.max_mdd:
-                        raise optuna.TrialPruned()
-                    return float(res.total_return_pct or -999.0)
-                except optuna.TrialPruned: raise
-                except Exception: raise optuna.TrialPruned()
-
-            study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
-
-            completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-            if completed:
-                best_t = max(completed, key=lambda t: t.value or -999.0)
-                if (best_t.value or -999.0) > best_score:
-                    best_score  = best_t.value or -999.0
-                    best_params = _params_from_trial_params(best_t.params, base_params, ss_config)
-
-        if best_params is None:
-            results.append({**w, "best_params": None, "is_return": None,
-                            "oos_return": None, "status": "최적화 실패"})
-            continue
-
-        is_res   = run_backtest(data_is, best_params)
-        data_oos = prepare_data(
-            signal_ticker, trade_ticker, market_ticker,
-            w["oos_start"], w["oos_end"], best_params
-        )
-        if data_oos is None or len(data_oos["base"]) < 10:
-            results.append({**w, "best_params": best_params,
-                            "is_return": is_res.total_return_pct,
-                            "oos_return": None, "status": "OOS 데이터 부족"})
-            continue
-
-        oos_res = run_backtest(data_oos, best_params)
-        results.append({
-            **w,
-            "best_params": best_params,
-            "is_return":   round(is_res.total_return_pct, 1),
-            "is_mdd":      round(is_res.mdd_pct, 1),
-            "is_trades":   is_res.total_trades,
-            "oos_return":  round(oos_res.total_return_pct, 1),
-            "oos_mdd":     round(oos_res.mdd_pct, 1),
-            "oos_trades":  oos_res.total_trades,
-            "oos_winrate": round(oos_res.win_rate_pct, 1),
-            "status":      "완료",
-            "ma_buy":      getattr(best_params, "ma_buy", "-"),
-            "ma_sell":     getattr(best_params, "ma_sell", "-"),
-            "buy_op":      getattr(best_params, "buy_operator", "-"),
-            "sell_op":     getattr(best_params, "sell_operator", "-"),
-        })
+        except Exception as e:
+            results.append({**w, "return": None, "mdd": None,
+                            "trades": None, "winrate": None, "status": f"오류"})
 
     if progress_cb:
-        progress_cb(total_steps, total_steps, "완료")
+        progress_cb(total, total, "완료")
 
-    oos_returns = [r["oos_return"] for r in results if r.get("oos_return") is not None]
+    oos_returns = [r["return"] for r in results if r.get("return") is not None]
     if not oos_returns:
         return WalkForwardResult(windows=results, is_valid=False)
 
-    total_oos = 1.0
+    total_ret = 1.0
     for r in oos_returns:
-        total_oos *= (1 + r / 100)
-    total_oos = (total_oos - 1) * 100
+        total_ret *= (1 + r / 100)
+    total_ret = (total_ret - 1) * 100
 
     return WalkForwardResult(
         windows          = results,
@@ -167,7 +112,7 @@ def run_walk_forward(
         avg_oos_return   = round(float(np.mean(oos_returns)), 1),
         std_oos_return   = round(float(np.std(oos_returns)), 1),
         win_rate         = round(sum(1 for r in oos_returns if r > 0) / len(oos_returns) * 100, 1),
-        total_oos_return = round(total_oos, 1),
+        total_oos_return = round(total_ret, 1),
         is_valid         = True,
     )
 
