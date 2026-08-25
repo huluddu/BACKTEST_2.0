@@ -747,7 +747,9 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
         buy_msg  = f"종가({cl_b:.2f}) {p.buy_operator} MA{p.ma_buy}({ma_b:.2f})"
         if p.use_trend_buy and not trend_up:
             buy_base = False
-            buy_msg += " → 추세필터 거부 ❌"
+            buy_msg += f" → 추세필터 거부 ❌ (단기MA{p.ma_trend_short}:{ts_val:.2f} < 장기MA{p.ma_trend_long}:{tl_val:.2f})"
+        elif p.use_trend_buy and trend_up:
+            buy_msg += f" → 추세필터 통과 ✅ (단기MA{p.ma_trend_short}:{ts_val:.2f} ≥ 장기MA{p.ma_trend_long}:{tl_val:.2f})"
         buy_ok = buy_base
 
     # 시장 필터
@@ -772,7 +774,9 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
         sell_msg  = f"종가({cl_s:.2f}) {p.sell_operator} MA{p.ma_sell}({ma_s:.2f})"
         if p.use_trend_sell and trend_up:
             sell_base = False
-            sell_msg += " → 역추세필터 거부 ❌"
+            sell_msg += f" → 역추세필터 거부 ❌ (단기MA{p.ma_trend_short}:{ts_val:.2f} ≥ 장기MA{p.ma_trend_long}:{tl_val:.2f})"
+        elif p.use_trend_sell and not trend_up:
+            sell_msg += f" → 역추세필터 통과 ✅ (단기MA{p.ma_trend_short}:{ts_val:.2f} < 장기MA{p.ma_trend_long}:{tl_val:.2f})"
         sell_ok = sell_base
 
     if buy_ok and sell_ok:
