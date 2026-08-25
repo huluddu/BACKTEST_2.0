@@ -2165,8 +2165,7 @@ with tab7:
 with tab8:
     if tab8.open:
         from modules.validation import (
-            run_walk_forward,
-            WalkForwardResult,
+            run_walk_forward, WalkForwardResult,
         )
         from modules.optimizer import OptimizeConstraints
 
@@ -2177,35 +2176,29 @@ with tab8:
 
         # ── Walk-Forward Analysis ─────────────────────────
         with val_sub1:
-            st.subheader("📊 Walk-Forward Analysis")
-            st.caption("전체 기간을 여러 윈도우로 나눠 매번 최적화 → 검증을 반복합니다. 미래를 모른 상태에서의 실전 성과를 시뮬레이션합니다.")
+            st.subheader("📊 구간별 유효성 검증")
+            st.caption("현재 사이드바 전략 파라미터를 고정한 채로 구간별 백테스트를 실행합니다. '내 전략이 어느 시기에도 통하는가'를 검증합니다.")
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                wf_is_months  = st.number_input("최적화 구간 (개월)", 6, 60, 24, 6, key="wf_is")
-                wf_oos_months = st.number_input("검증 구간 (개월)",   3, 24,  6, 3, key="wf_oos")
+                wf_window  = st.number_input("구간 길이 (개월)", 3, 60, 12, 3, key="wf_window")
+                wf_step    = st.number_input("스텝 (개월)", 3, 12, 6, 3, key="wf_step")
             with col2:
-                wf_step       = st.number_input("스텝 (개월)",        3, 12,  6, 3, key="wf_step")
-                wf_trials     = st.number_input("윈도우당 탐색 횟수", 30, 500, 100, 10, key="wf_trials")
-            with col3:
-                wf_seeds      = st.slider("시드 수", 1, 5, 2, key="wf_seeds")
-                wf_min_trades = st.slider("최소 매매 횟수", 1, 20, 3, key="wf_min_trades")
-                wf_exec_mode  = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
+                wf_exec_mode = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
                                          horizontal=True, key="wf_exec")
+            with col3:
+                # 구간 수 미리 계산
+                _wf_start = pd.to_datetime(start_date)
+                _wf_end   = pd.to_datetime(end_date)
+                _cur = _wf_start
+                _n_win = 0
+                while True:
+                    if _cur + pd.DateOffset(months=wf_window) > _wf_end: break
+                    _n_win += 1
+                    _cur += pd.DateOffset(months=wf_step)
+                st.metric("예상 구간 수", f"{_n_win}개")
 
-            # 윈도우 개수 미리 계산
-            _wf_start = pd.to_datetime(start_date)
-            _wf_end   = pd.to_datetime(end_date)
-            _cur = _wf_start
-            _n_win = 0
-            while True:
-                _oos_end = _cur + pd.DateOffset(months=wf_is_months + wf_oos_months)
-                if _oos_end > _wf_end: break
-                _n_win += 1
-                _cur += pd.DateOffset(months=wf_step)
-            st.info(f"⏱ 예상 윈도우 수: **{_n_win}개** × 탐색 {wf_trials}회 × {wf_seeds}시드 = **{_n_win * wf_trials * wf_seeds:,}회** 탐색")
-
-            if st.button("🚀 Walk-Forward 실행", type="primary",
+            if st.button("🚀 구간별 검증 실행", type="primary",
                          use_container_width=True, key="wf_run"):
                 p_wf = _collect_params()
                 p_wf.execution_mode = "LOC" if wf_exec_mode == "LOC 종가" else "NEXT_OPEN"
@@ -2217,16 +2210,7 @@ with tab8:
                     prog_ph.progress(int(cur / total * 100) if total > 0 else 0)
                     status_ph.caption(f"⏳ {msg}")
 
-                # ss_config: 현재 탭4 설정 재사용 (기본값)
-                _ss_config = {
-                    "trend_buy":  "fixed" if p_wf.use_trend_buy  else "off",
-                    "trend_sell": "fixed" if p_wf.use_trend_sell else "off",
-                    "rsi":        "fixed" if p_wf.use_rsi_filter  else "off",
-                    "macd":       "fixed" if p_wf.use_macd        else "off",
-                    "atr":        "fixed" if p_wf.use_atr_stop    else "off",
-                }
-
-                with st.spinner("Walk-Forward 실행 중..."):
+                with st.spinner("구간별 검증 중..."):
                     wf_result = run_walk_forward(
                         signal_ticker = p_wf.signal_ticker,
                         trade_ticker  = p_wf.trade_ticker,
@@ -2234,13 +2218,8 @@ with tab8:
                         start_date    = start_date,
                         end_date      = end_date,
                         base_params   = p_wf,
-                        ss_config     = _ss_config,
-                        constraints   = OptimizeConstraints(min_trades=wf_min_trades),
-                        is_months     = int(wf_is_months),
-                        oos_months    = int(wf_oos_months),
+                        window_months = int(wf_window),
                         step_months   = int(wf_step),
-                        n_trials      = int(wf_trials),
-                        n_seeds       = int(wf_seeds),
                         progress_cb   = _wf_cb,
                     )
 
@@ -2252,23 +2231,24 @@ with tab8:
             if wf_res and wf_res.is_valid:
                 st.divider()
 
-                # 핵심 지표
+                # 핵심 지표 카드
                 col1, col2, col3, col4 = st.columns(4)
                 def _wf_card(label, value, color="#e0e0e0"):
                     return f"""<div style="background:#1e1e2e;border-radius:8px;padding:10px 14px;text-align:center">
                       <div style="font-size:11px;color:#aaa;margin-bottom:4px">{label}</div>
                       <div style="font-size:16px;font-weight:600;color:{color}">{value}</div></div>"""
 
-                col1.markdown(_wf_card("OOS 평균 수익률",
+                col1.markdown(_wf_card("구간 평균 수익률",
                     f"{wf_res.avg_oos_return}%",
                     "#26a69a" if wf_res.avg_oos_return > 0 else "#ef5350"
                 ), unsafe_allow_html=True)
-                col2.markdown(_wf_card("OOS 수익률 표준편차", f"{wf_res.std_oos_return}%"), unsafe_allow_html=True)
-                col3.markdown(_wf_card("OOS 수익 구간 비율",
+                col2.markdown(_wf_card("수익률 표준편차",
+                    f"{wf_res.std_oos_return}%p"), unsafe_allow_html=True)
+                col3.markdown(_wf_card("수익 구간 비율",
                     f"{wf_res.win_rate}%",
                     "#26a69a" if wf_res.win_rate >= 60 else "#ff9800" if wf_res.win_rate >= 40 else "#ef5350"
                 ), unsafe_allow_html=True)
-                col4.markdown(_wf_card("OOS 복리 누적 수익률",
+                col4.markdown(_wf_card("구간 복리 누적",
                     f"{wf_res.total_oos_return}%",
                     "#26a69a" if wf_res.total_oos_return > 0 else "#ef5350"
                 ), unsafe_allow_html=True)
@@ -2277,21 +2257,25 @@ with tab8:
 
                 # 판정
                 if wf_res.avg_oos_return > 0 and wf_res.win_rate >= 60:
-                    st.success("✅ 전략이 OOS 구간에서도 일관되게 수익을 냈습니다. 과적합 가능성 낮음.")
+                    st.success(f"✅ {len(wf_res.oos_returns)}개 구간 중 {int(wf_res.win_rate/100*len(wf_res.oos_returns))}개 수익. 시기에 관계없이 일관되게 통하는 전략입니다.")
                 elif wf_res.avg_oos_return > 0 and wf_res.win_rate >= 40:
-                    st.warning("⚠️ OOS 수익은 있지만 일관성이 낮습니다. 추가 검증 권장.")
+                    st.warning(f"⚠️ 평균은 수익이지만 일부 구간에서 손실. 시장 국면에 따라 전략 성과가 달라집니다.")
                 else:
-                    st.error("❌ OOS 구간에서 수익이 불안정합니다. 과적합 가능성 높음.")
+                    st.error(f"❌ 수익 구간이 적습니다. 특정 기간에만 유효한 전략일 수 있습니다.")
 
                 st.divider()
 
-                # OOS 수익률 바 차트
+                # 구간별 수익률 바 차트
                 import plotly.graph_objects as go
-                oos_labels = [f"W{i+1}" for i in range(len(wf_res.oos_returns))]
-                colors     = ["#26a69a" if r > 0 else "#ef5350" for r in wf_res.oos_returns]
+                labels = [f"W{i+1}\n{r['start']}" for i, r in enumerate(wf_res.windows) if r.get("return") is not None]
+                colors = ["#26a69a" if r > 0 else "#ef5350" for r in wf_res.oos_returns]
+
                 fig_wf = go.Figure(go.Bar(
-                    x=oos_labels, y=wf_res.oos_returns,
-                    marker_color=colors, name="OOS 수익률"
+                    x=[f"W{i+1}" for i in range(len(wf_res.oos_returns))],
+                    y=wf_res.oos_returns,
+                    marker_color=colors,
+                    text=[f"{r:.1f}%" for r in wf_res.oos_returns],
+                    textposition="outside",
                 ))
                 fig_wf.add_hline(y=0, line_color="white", line_width=1)
                 fig_wf.add_hline(y=wf_res.avg_oos_return,
@@ -2299,41 +2283,25 @@ with tab8:
                                  annotation_text=f"평균 {wf_res.avg_oos_return}%")
                 fig_wf.update_layout(
                     height=300, template="plotly_dark",
-                    yaxis_title="OOS 수익률 (%)",
+                    yaxis_title="수익률 (%)",
                     margin=dict(l=0, r=0, t=20, b=0),
                 )
                 st.plotly_chart(fig_wf, use_container_width=True)
 
-                # 윈도우별 상세 테이블
-                st.subheader("📋 윈도우별 상세 결과")
+                # 구간별 상세 테이블
+                st.subheader("📋 구간별 상세 결과")
                 wf_rows = []
                 for i, w in enumerate(wf_res.windows):
-                    if w.get("status") != "완료":
-                        wf_rows.append({
-                            "W": i+1,
-                            "IS 기간": f"{w['is_start']} ~ {w['is_end']}",
-                            "OOS 기간": f"{w['oos_start']} ~ {w['oos_end']}",
-                            "IS 수익률(%)": "-",
-                            "OOS 수익률(%)": "-",
-                            "OOS MDD(%)": "-",
-                            "OOS 매매": "-",
-                            "최적 MA매수": "-",
-                            "최적 MA매도": "-",
-                            "상태": w.get("status", "-"),
-                        })
-                    else:
-                        wf_rows.append({
-                            "W": i+1,
-                            "IS 기간": f"{w['is_start']} ~ {w['is_end']}",
-                            "OOS 기간": f"{w['oos_start']} ~ {w['oos_end']}",
-                            "IS 수익률(%)": w.get("is_return", "-"),
-                            "OOS 수익률(%)": w.get("oos_return", "-"),
-                            "OOS MDD(%)": w.get("oos_mdd", "-"),
-                            "OOS 매매": w.get("oos_trades", "-"),
-                            "최적 MA매수": w.get("ma_buy", "-"),
-                            "최적 MA매도": w.get("ma_sell", "-"),
-                            "상태": "✅",
-                        })
+                    wf_rows.append({
+                        "구간":       f"W{i+1}",
+                        "기간":       f"{w['start']} ~ {w['end']}",
+                        "수익률(%)":  w.get("return", "-"),
+                        "B&H(%)":    w.get("bh", "-"),
+                        "MDD(%)":    w.get("mdd", "-"),
+                        "승률(%)":   w.get("winrate", "-"),
+                        "매매횟수":  w.get("trades", "-"),
+                        "상태":      "✅" if w.get("status") == "완료" else w.get("status", "-"),
+                    })
 
                 wf_df = pd.DataFrame(wf_rows)
 
@@ -2346,7 +2314,7 @@ with tab8:
                     return ""
 
                 st.dataframe(
-                    wf_df.style.map(_wf_color, subset=["IS 수익률(%)", "OOS 수익률(%)", "OOS MDD(%)"]),
+                    wf_df.style.map(_wf_color, subset=["수익률(%)", "B&H(%)", "MDD(%)"]),
                     use_container_width=True, hide_index=True
                 )
 
