@@ -1077,9 +1077,73 @@ with tab3:
                 result = run_backtest(data, p)
             return result, data, p
 
+        def _strategy_description(p: StrategyParams) -> str:
+            """현재 전략을 자연어로 설명"""
+            lines = []
+
+            # 매수 조건
+            op_str = "크면" if p.buy_operator == ">" else "작으면"
+            cl_buy_desc = f"{p.offset_cl_buy}일 전 종가"
+            ma_buy_desc = f"{p.offset_ma_buy}일 전 {p.ma_buy}일 이평선"
+            lines.append(f"**📈 매수 조건:** {cl_buy_desc}이 {ma_buy_desc}보다 {op_str} 매수")
+
+            # 매도 조건
+            if p.sell_operator == "OFF":
+                lines.append("**📉 매도 조건:** 매도 비활성화")
+            else:
+                op_str_s = "크면" if p.sell_operator == ">" else "작으면"
+                cl_sell_desc = f"{p.offset_cl_sell}일 전 종가"
+                ma_sell_desc = f"{p.offset_ma_sell}일 전 {p.ma_sell}일 이평선"
+                lines.append(f"**📉 매도 조건:** {cl_sell_desc}이 {ma_sell_desc}보다 {op_str_s} 매도")
+
+            # 추세 필터
+            if p.use_trend_buy or p.use_trend_sell:
+                ts_desc = f"{p.offset_trend_short}일 전 {p.ma_trend_short}일 이평선"
+                tl_desc = f"{p.offset_trend_long}일 전 {p.ma_trend_long}일 이평선"
+                trend_parts = []
+                if p.use_trend_buy:
+                    trend_parts.append(f"매수는 {ts_desc} ≥ {tl_desc}일 때만 허용 (상승 추세)")
+                if p.use_trend_sell:
+                    trend_parts.append(f"매도는 {ts_desc} < {tl_desc}일 때만 허용 (하락 추세)")
+                lines.append(f"**🔀 추세 필터:** {' / '.join(trend_parts)}")
+
+            # 손절/익절
+            risk_parts = []
+            if p.use_atr_stop:
+                risk_parts.append(f"ATR 손절 (배수 {p.atr_multiplier}x)")
+            elif p.stop_loss_pct > 0:
+                risk_parts.append(f"고정 손절 -{p.stop_loss_pct:.0f}%")
+            if p.take_profit_pct > 0:
+                risk_parts.append(f"익절 +{p.take_profit_pct:.0f}%")
+            if risk_parts:
+                lines.append(f"**🛡 손절/익절:** {' / '.join(risk_parts)}")
+
+            # RSI
+            if p.use_rsi_filter:
+                lines.append(f"**📉 RSI 필터:** RSI({p.rsi_period}) {p.rsi_min}~{p.rsi_max} 범위일 때만 매수")
+
+            # MACD
+            if p.use_macd:
+                lines.append(f"**📊 MACD 필터:** MACD({p.macd_fast},{p.macd_slow},{p.macd_signal_period}) {p.macd_mode}")
+
+            # 시장 필터
+            if p.use_market_filter:
+                lines.append(f"**🌍 시장 필터:** {p.market_ticker} > MA{p.market_ma_period}일 때만 매수")
+
+            # 체결 방식
+            exec_str = "당일 종가 (LOC)" if p.execution_mode == "LOC" else "다음날 시가 (T+1)"
+            lines.append(f"**⚙️ 체결 방식:** {exec_str}")
+
+            return "\n\n".join(lines)
+
         def _show_bt_result(result, data, p_used):
             """백테스트 결과 표시 (공통)"""
             if result and result.is_valid:
+
+                # 전략 설명
+                with st.expander("📋 현재 전략 설명", expanded=False):
+                    st.markdown(_strategy_description(p_used))
+
                 sr = sharpe_ratio(result.asset_curve)
                 cr = calmar_ratio(result.total_return_pct, result.mdd_pct)
 
