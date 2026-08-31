@@ -927,7 +927,7 @@ with tab2:
         )
         _preset_exec = "LOC" if preset_exec_mode == "LOC 종가" else "NEXT_OPEN"
 
-        sub1, sub2, sub3 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교", "📅 연도별 수익률"])
+        sub1, sub2, sub3, sub4 = st.tabs(["🗂 전략 목록 & 시그널", "📊 구간별 성과 비교", "📅 연도별 수익률", "⚖️ 전략 비교"])
 
         with sub1:
             if not presets:
@@ -1050,6 +1050,222 @@ with tab2:
                             })
                     if summary_rows:
                         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+        with sub4:
+            if not presets:
+                st.info("저장된 전략이 없습니다.")
+            else:
+                import plotly.graph_objects as go
+
+                st.caption("저장된 전략들을 동일 기간으로 비교합니다. 다른 티커는 시작=100 정규화 + B&H 대비 초과수익으로 비교합니다.")
+
+                # 전략 선택
+                all_names   = list(presets.keys())
+                cmp_select  = st.multiselect(
+                    "비교할 전략 선택 (빈칸 = 전체)",
+                    all_names, default=[], key="cmp_select"
+                )
+                cmp_names   = cmp_select if cmp_select else all_names
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    rolling_window = st.selectbox("롤링 수익률 창", ["3개월", "6개월", "12개월"],
+                                                  index=1, key="cmp_rolling")
+                    rolling_months = int(rolling_window.replace("개월", ""))
+                with col2:
+                    cmp_exec = st.radio("체결 방식", ["LOC 종가", "T+1 시가"],
+                                        horizontal=True, key="cmp_exec")
+                    _cmp_exec = "LOC" if cmp_exec == "LOC 종가" else "NEXT_OPEN"
+
+                if st.button("⚖️ 비교 분석 실행", type="primary",
+                             use_container_width=True, key="cmp_run"):
+                    prog_cmp   = st.progress(0)
+                    status_cmp = st.empty()
+                    cmp_results = {}
+
+                    for ci, name in enumerate(cmp_names):
+                        prog_cmp.progress(int(ci / len(cmp_names) * 100))
+                        status_cmp.caption(f"⏳ {name} 분석 중... ({ci+1}/{len(cmp_names)})")
+                        try:
+                            p_cmp = preset_to_params(presets[name])
+                            p_cmp.execution_mode = _cmp_exec
+                            data_cmp = prepare_data(
+                                p_cmp.signal_ticker, p_cmp.trade_ticker,
+                                p_cmp.market_ticker, start_date, end_date, p_cmp
+                            )
+                            if data_cmp is None: continue
+                            res_cmp = run_backtest(data_cmp, p_cmp)
+                            if res_cmp.is_valid:
+                                cmp_results[name] = {
+                                    "result": res_cmp,
+                                    "data":   data_cmp,
+                                    "params": p_cmp,
+                                }
+                        except Exception: continue
+
+                    prog_cmp.empty()
+                    status_cmp.empty()
+                    set_state("cmp_results", cmp_results)
+
+                cmp_results = get_state("cmp_results")
+
+                if cmp_results:
+                    st.divider()
+
+                    # ── 핵심 지표 비교표 ─────────────────
+                    st.markdown("##### 📊 핵심 지표 비교")
+                    tbl_rows = []
+                    for name, d in cmp_results.items():
+                        r  = d["result"]
+                        p  = d["params"]
+                        sr = float(np.std(np.diff(r.asset_curve) / r.asset_curve[:-1]) * np.sqrt(252)) if len(r.asset_curve) > 1 else 0
+                        tbl_rows.append({
+                            "전략":           name,
+                            "티커":           p.trade_ticker,
+                            "수익률(%)":      r.total_return_pct,
+                            "B&H(%)":         r.bh_return_pct,
+                            "초과수익(%p)":   round(r.total_return_pct - r.bh_return_pct, 1),
+                            "MDD(%)":         r.mdd_pct,
+                            "승률(%)":        r.win_rate_pct,
+                            "PF":             r.profit_factor,
+                            "샤프":           round(sr, 2),
+                            "매매횟수":       r.total_trades,
+                        })
+
+                    tbl_df = pd.DataFrame(tbl_rows)
+
+                    def _cmp_tbl_color(val):
+                        try:
+                            v = float(val)
+                            if v > 0: return "color:#26a69a"
+                            if v < 0: return "color:#ef5350"
+                        except: pass
+                        return ""
+
+                    st.dataframe(
+                        tbl_df.style.map(_cmp_tbl_color,
+                            subset=["수익률(%)", "B&H(%)", "초과수익(%p)", "MDD(%)"]),
+                        use_container_width=True, hide_index=True
+                    )
+
+                    st.divider()
+
+                    # ── 자산곡선 비교 (정규화 시작=100) ───
+                    st.markdown("##### 📈 자산곡선 비교 (시작=100 정규화)")
+                    fig_curve = go.Figure()
+                    colors_list = ["#26a69a","#ff9800","#2196f3","#e91e63",
+                                   "#9c27b0","#00bcd4","#ffeb3b","#4caf50"]
+
+                    for ci, (name, d) in enumerate(cmp_results.items()):
+                        r    = d["result"]
+                        data = d["data"]
+                        if len(r.asset_curve) == 0: continue
+                        dates = pd.to_datetime(data["base"]["Date"].values)
+                        n_min = min(len(dates), len(r.asset_curve))
+                        norm  = r.asset_curve[-n_min:] / r.asset_curve[-n_min] * 100
+                        color = colors_list[ci % len(colors_list)]
+                        fig_curve.add_trace(go.Scatter(
+                            x=dates[-n_min:], y=norm,
+                            name=f"{name} ({d['params'].trade_ticker})",
+                            line=dict(color=color, width=2),
+                        ))
+
+                    fig_curve.add_hline(y=100, line_color="white", line_width=1, line_dash="dot")
+                    fig_curve.update_layout(
+                        height=400, template="plotly_dark",
+                        yaxis_title="수익 지수 (시작=100)",
+                        legend=dict(orientation="h", y=-0.2),
+                        margin=dict(l=0, r=0, t=20, b=0),
+                    )
+                    st.plotly_chart(fig_curve, use_container_width=True)
+
+                    st.divider()
+
+                    # ── 롤링 수익률 비교 ─────────────────
+                    st.markdown(f"##### 📊 {rolling_window} 롤링 수익률 비교")
+                    st.caption("B&H와 비교해 언제 전략이 더 좋았는지 확인합니다.")
+
+                    fig_rolling = go.Figure()
+                    trading_days = rolling_months * 21  # 월 21거래일 근사
+
+                    for ci, (name, d) in enumerate(cmp_results.items()):
+                        r    = d["result"]
+                        data = d["data"]
+                        if len(r.asset_curve) < trading_days + 1: continue
+
+                        dates = pd.to_datetime(data["base"]["Date"].values)
+                        n_min = min(len(dates), len(r.asset_curve))
+                        curve = r.asset_curve[-n_min:]
+                        d_arr = dates[-n_min:]
+
+                        # 롤링 수익률 계산
+                        rolling_ret = np.full(len(curve), np.nan)
+                        for ri in range(trading_days, len(curve)):
+                            if curve[ri - trading_days] > 0:
+                                rolling_ret[ri] = (curve[ri] / curve[ri - trading_days] - 1) * 100
+
+                        # B&H 롤링
+                        bh_curve = data["trd_close"][-n_min:]
+                        bh_rolling = np.full(len(bh_curve), np.nan)
+                        for ri in range(trading_days, len(bh_curve)):
+                            if bh_curve[ri - trading_days] > 0:
+                                bh_rolling[ri] = (bh_curve[ri] / bh_curve[ri - trading_days] - 1) * 100
+
+                        color = colors_list[ci % len(colors_list)]
+                        fig_rolling.add_trace(go.Scatter(
+                            x=d_arr, y=rolling_ret,
+                            name=f"{name} ({d['params'].trade_ticker})",
+                            line=dict(color=color, width=2),
+                        ))
+                        # B&H는 회색 점선 (첫 번째 전략만)
+                        if ci == 0:
+                            fig_rolling.add_trace(go.Scatter(
+                                x=d_arr, y=bh_rolling,
+                                name=f"B&H ({d['params'].trade_ticker})",
+                                line=dict(color="gray", width=1, dash="dot"),
+                            ))
+
+                    fig_rolling.add_hline(y=0, line_color="white", line_width=1)
+                    fig_rolling.update_layout(
+                        height=380, template="plotly_dark",
+                        yaxis_title=f"{rolling_window} 롤링 수익률 (%)",
+                        legend=dict(orientation="h", y=-0.2),
+                        margin=dict(l=0, r=0, t=20, b=0),
+                    )
+                    st.plotly_chart(fig_rolling, use_container_width=True)
+
+                    # 롤링 수익률 통계 요약
+                    st.divider()
+                    st.caption(f"📋 {rolling_window} 롤링 수익률 통계")
+                    roll_summary = []
+                    for name, d in cmp_results.items():
+                        r    = d["result"]
+                        data = d["data"]
+                        if len(r.asset_curve) < trading_days + 1: continue
+                        n_min = min(len(data["base"]), len(r.asset_curve))
+                        curve = r.asset_curve[-n_min:]
+                        rolling_ret = []
+                        for ri in range(trading_days, len(curve)):
+                            if curve[ri - trading_days] > 0:
+                                rolling_ret.append((curve[ri] / curve[ri - trading_days] - 1) * 100)
+                        if not rolling_ret: continue
+                        roll_arr = np.array(rolling_ret)
+                        roll_summary.append({
+                            "전략":       name,
+                            "티커":       d["params"].trade_ticker,
+                            "평균(%)":    round(float(np.mean(roll_arr)), 1),
+                            "표준편차":   round(float(np.std(roll_arr)), 1),
+                            "최대(%)":    round(float(np.max(roll_arr)), 1),
+                            "최소(%)":    round(float(np.min(roll_arr)), 1),
+                            "양수 비율":  f"{(roll_arr > 0).sum()}/{len(roll_arr)} ({(roll_arr > 0).mean()*100:.0f}%)",
+                        })
+                    if roll_summary:
+                        st.dataframe(
+                            pd.DataFrame(roll_summary).style.map(
+                                _cmp_tbl_color, subset=["평균(%)", "최대(%)", "최소(%)"]
+                            ),
+                            use_container_width=True, hide_index=True
+                        )
 
 
     # ══════════════════════════════════════════════════════════
