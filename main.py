@@ -681,22 +681,22 @@ def _collect_params() -> StrategyParams:
         # 거시지표 필터
         macro_tips_enabled   = bool(st.session_state.get("macro_tips_on", False)),
         macro_tips_mode      = "value" if st.session_state.get("macro_tips_mode", "절대값 비교") == "절대값 비교" else "ma_cross",
-        macro_tips_operator  = st.session_state.get("_tips_op", "<"),
+        macro_tips_operator  = "<" if "이하" in str(st.session_state.get("macro_tips_op_sel", "< (이하)")) else ">",
         macro_tips_threshold = float(st.session_state.get("macro_tips_thr", 2.0)),
         macro_tips_ma_period = int(st.session_state.get("macro_tips_ma", 60)),
-        macro_tips_ma_op     = st.session_state.get("_tips_op", "<"),
+        macro_tips_ma_op     = "<" if "<" in str(st.session_state.get("macro_tips_mop", "TIPS < MA (하락 추세)")) else ">",
         macro_cape_enabled   = bool(st.session_state.get("macro_cape_on", False)),
         macro_cape_mode      = "value" if st.session_state.get("macro_cape_mode", "절대값 비교") == "절대값 비교" else "ma_cross",
-        macro_cape_operator  = st.session_state.get("_cape_op", "<"),
+        macro_cape_operator  = "<" if "이하" in str(st.session_state.get("macro_cape_op_sel", "< (이하)")) else ">",
         macro_cape_threshold = float(st.session_state.get("macro_cape_thr", 30.0)),
         macro_cape_ma_period = int(st.session_state.get("macro_cape_ma", 12)),
-        macro_cape_ma_op     = st.session_state.get("_cape_op", "<"),
+        macro_cape_ma_op     = "<" if "<" in str(st.session_state.get("macro_cape_mop", "CAPE < MA")) else ">",
         macro_ecy_enabled    = bool(st.session_state.get("macro_ecy_on", False)),
         macro_ecy_mode       = "value" if st.session_state.get("macro_ecy_mode", "절대값 비교") == "절대값 비교" else "ma_cross",
-        macro_ecy_operator   = st.session_state.get("_ecy_op", ">"),
+        macro_ecy_operator   = ">" if "이상" in str(st.session_state.get("macro_ecy_op_sel", "> (이상)")) else "<",
         macro_ecy_threshold  = float(st.session_state.get("macro_ecy_thr", 0.0)),
         macro_ecy_ma_period  = int(st.session_state.get("macro_ecy_ma", 60)),
-        macro_ecy_ma_op      = st.session_state.get("_ecy_op", ">"),
+        macro_ecy_ma_op      = ">" if ">" in str(st.session_state.get("macro_ecy_mop", "ECY > MA")) else "<",
     )
 
 
