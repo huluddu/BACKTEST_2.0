@@ -1532,7 +1532,10 @@ with tab3:
                     for k in ["tips", "cape", "ecy"]:
                         df_dbg = result.macro_data.get(k)
                         if df_dbg is not None and not df_dbg.empty:
-                            st.caption(f"✅ {k}: {len(df_dbg)}행, {df_dbg['date'].min().date()} ~ {df_dbg['date'].max().date()}")
+                            if "error" in df_dbg.columns:
+                                st.caption(f"❌ {k}: 오류 - {df_dbg['error'].iloc[0]}")
+                            else:
+                                st.caption(f"✅ {k}: {len(df_dbg)}행, {df_dbg['date'].min().date()} ~ {df_dbg['date'].max().date()}")
                         else:
                             st.caption(f"❌ {k}: 데이터 없음")
 
