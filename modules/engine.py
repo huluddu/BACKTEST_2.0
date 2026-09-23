@@ -102,7 +102,29 @@ class StrategyParams:
     # ── 매매 규칙 ─────────────────────────────────────────
     min_hold_days: int     = 0
     initial_cash: float    = 5_000_000.0
-    execution_mode: str    = "LOC"  # "LOC" = 당일 종가, "NEXT_OPEN" = 다음날 시가
+    execution_mode: str    = "LOC"
+
+    # ── 거시지표 필터 ─────────────────────────────────────
+    macro_tips_enabled:   bool  = False
+    macro_tips_mode:      str   = "value"    # "value" | "ma_cross"
+    macro_tips_operator:  str   = "<"
+    macro_tips_threshold: float = 2.0
+    macro_tips_ma_period: int   = 12
+    macro_tips_ma_op:     str   = "<"
+
+    macro_cape_enabled:   bool  = False
+    macro_cape_mode:      str   = "value"
+    macro_cape_operator:  str   = "<"
+    macro_cape_threshold: float = 30.0
+    macro_cape_ma_period: int   = 12
+    macro_cape_ma_op:     str   = "<"
+
+    macro_ecy_enabled:    bool  = False
+    macro_ecy_mode:       str   = "value"
+    macro_ecy_operator:   str   = ">"
+    macro_ecy_threshold:  float = 0.0
+    macro_ecy_ma_period:  int   = 12
+    macro_ecy_ma_op:      str   = ">"
 
     # ── 비용 ─────────────────────────────────────────────
     fee_bps: float  = 25.0
@@ -316,6 +338,48 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
     if n < 60:
         return BacktestResult(error="데이터 부족 (최소 60봉 필요)")
 
+    # ── 거시지표 필터 시리즈 준비 ─────────────────────────
+    macro_filter_series = None
+    _any_macro = p.macro_tips_enabled or p.macro_cape_enabled or p.macro_ecy_enabled
+    if _any_macro:
+        try:
+            from .macro_data import fetch_all_macro, build_macro_filter_series
+            _start = str(base["Date"].iloc[0].date())
+            macro_data = fetch_all_macro(start_date=_start)
+
+            tips_cfg = {
+                "enabled":   p.macro_tips_enabled,
+                "mode":      p.macro_tips_mode,
+                "operator":  p.macro_tips_operator,
+                "threshold": p.macro_tips_threshold,
+                "ma_period": p.macro_tips_ma_period,
+                "ma_operator": p.macro_tips_ma_op,
+            } if p.macro_tips_enabled else None
+
+            cape_cfg = {
+                "enabled":   p.macro_cape_enabled,
+                "mode":      p.macro_cape_mode,
+                "operator":  p.macro_cape_operator,
+                "threshold": p.macro_cape_threshold,
+                "ma_period": p.macro_cape_ma_period,
+                "ma_operator": p.macro_cape_ma_op,
+            } if p.macro_cape_enabled else None
+
+            ecy_cfg = {
+                "enabled":   p.macro_ecy_enabled,
+                "mode":      p.macro_ecy_mode,
+                "operator":  p.macro_ecy_operator,
+                "threshold": p.macro_ecy_threshold,
+                "ma_period": p.macro_ecy_ma_period,
+                "ma_operator": p.macro_ecy_ma_op,
+            } if p.macro_ecy_enabled else None
+
+            macro_filter_series = build_macro_filter_series(
+                macro_data, tips_cfg, cape_cfg, ecy_cfg
+            )
+        except Exception:
+            macro_filter_series = None
+
     # ── 지표 배열 미리 꺼내기 (루프 내 dict 접근 최소화) ──
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
     ma_sell_arr = sig_ind["ma"].get(p.ma_sell, np.full(n, np.nan))
@@ -487,6 +551,17 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 if mkt_cl[i] < mkt_ma[i]:
                     buy_cond = False
                     buy_msg += f" [시장하락장]"
+
+        # ── 거시지표 필터 ──────────────────────────────
+        if buy_cond and macro_filter_series is not None:
+            try:
+                bar_date = pd.Timestamp(base["Date"].iloc[i])
+                if bar_date in macro_filter_series.index:
+                    if not macro_filter_series[bar_date]:
+                        buy_cond = False
+                        buy_msg += " [거시지표필터]"
+            except Exception:
+                pass
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # C. 포지션 관리 (손절/익절 먼저, 그 다음 전략 매도/매수)
