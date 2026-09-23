@@ -8,3 +8,5 @@ finance-datareader
 optuna
 gspread
 google-auth
+openpyxl
+xlrd
