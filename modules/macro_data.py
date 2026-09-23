@@ -15,7 +15,18 @@ FRED_BASE = "https://api.fred.stlouisfed.org/series/observations"
 def _get_fred_api_key() -> str | None:
     """Streamlit secrets에서 FRED API 키 가져오기"""
     try:
-        return st.secrets["fred_api_key"]
+        key = st.secrets.get("fred_api_key", None)
+        if key:
+            return str(key).strip()
+        # 섹션 없이 직접 접근 시도
+        for k in ["fred_api_key", "FRED_API_KEY", "fred_key"]:
+            try:
+                val = getattr(st.secrets, k, None)
+                if val:
+                    return str(val).strip()
+            except Exception:
+                pass
+        return None
     except Exception:
         return None
 
