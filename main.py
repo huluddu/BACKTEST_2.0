@@ -414,6 +414,66 @@ with st.sidebar:
         st.session_state["_use_mkt"]  = use_mkt
         st.session_state["_mkt_ma_p"] = mkt_ma_p
 
+    with st.expander("📡 거시지표 필터"):
+        _fred_ok = bool(st.secrets.get("fred_api_key", "")) if hasattr(st, "secrets") else False
+        if not _fred_ok:
+            st.caption("⚠️ FRED API 키가 없습니다. Streamlit secrets에 `fred_api_key`를 등록하세요.")
+
+        # ── TIPS 실질금리 ──────────────────────────────
+        macro_tips_on = st.toggle("10년 TIPS 실질금리 필터", key="macro_tips_on")
+        if macro_tips_on:
+            macro_tips_mode = st.radio("필터 방식", ["절대값 비교", "이평선 크로스"],
+                                        horizontal=True, key="macro_tips_mode")
+            if macro_tips_mode == "절대값 비교":
+                macro_tips_op  = st.radio("조건", ["< (이하)", "> (이상)"],
+                                           horizontal=True, key="macro_tips_op_sel")
+                macro_tips_thr = st.number_input("TIPS 기준값 (%)",
+                                                  value=2.0, step=0.25, key="macro_tips_thr")
+                _tips_op = "<" if "이하" in macro_tips_op else ">"
+                st.caption(f"💡 TIPS {_tips_op} {macro_tips_thr}% 일 때 매수 허용")
+            else:
+                macro_tips_ma  = st.number_input("TIPS MA 기간 (일)", value=60, step=5, key="macro_tips_ma")
+                macro_tips_mop = st.radio("조건", ["TIPS < MA (하락 추세)", "TIPS > MA (상승 추세)"],
+                                           horizontal=True, key="macro_tips_mop")
+                _tips_op  = "<" if "<" in macro_tips_mop else ">"
+                st.caption(f"💡 TIPS가 {macro_tips_ma}일 MA보다 {'낮을' if _tips_op == '<' else '높을'} 때 매수 허용")
+
+        # ── Shiller CAPE ───────────────────────────────
+        macro_cape_on = st.toggle("Shiller CAPE 필터", key="macro_cape_on")
+        if macro_cape_on:
+            macro_cape_mode = st.radio("필터 방식", ["절대값 비교", "이평선 크로스"],
+                                        horizontal=True, key="macro_cape_mode")
+            if macro_cape_mode == "절대값 비교":
+                macro_cape_op  = st.radio("조건", ["< (이하)", "> (이상)"],
+                                           horizontal=True, key="macro_cape_op_sel")
+                macro_cape_thr = st.number_input("CAPE 기준값",
+                                                  value=30.0, step=1.0, key="macro_cape_thr")
+                _cape_op = "<" if "이하" in macro_cape_op else ">"
+                st.caption(f"💡 CAPE {_cape_op} {macro_cape_thr:.0f} 일 때 매수 허용")
+            else:
+                macro_cape_ma  = st.number_input("CAPE MA 기간 (월)", value=12, step=1, key="macro_cape_ma")
+                macro_cape_mop = st.radio("조건", ["CAPE < MA", "CAPE > MA"],
+                                           horizontal=True, key="macro_cape_mop")
+                _cape_op = "<" if "<" in macro_cape_mop else ">"
+
+        # ── ECY ────────────────────────────────────────
+        macro_ecy_on = st.toggle("Excess CAPE Yield 필터", key="macro_ecy_on")
+        if macro_ecy_on:
+            macro_ecy_mode = st.radio("필터 방식", ["절대값 비교", "이평선 크로스"],
+                                       horizontal=True, key="macro_ecy_mode")
+            if macro_ecy_mode == "절대값 비교":
+                macro_ecy_op  = st.radio("조건", ["> (이상)", "< (이하)"],
+                                          horizontal=True, key="macro_ecy_op_sel")
+                macro_ecy_thr = st.number_input("ECY 기준값 (%)",
+                                                 value=0.0, step=0.25, key="macro_ecy_thr")
+                _ecy_op = ">" if "이상" in macro_ecy_op else "<"
+                st.caption(f"💡 ECY {_ecy_op} {macro_ecy_thr}% 일 때 매수 허용 (양수=주식 유리)")
+            else:
+                macro_ecy_ma  = st.number_input("ECY MA 기간 (일)", value=60, step=5, key="macro_ecy_ma")
+                macro_ecy_mop = st.radio("조건", ["ECY > MA", "ECY < MA"],
+                                          horizontal=True, key="macro_ecy_mop")
+                _ecy_op = ">" if ">" in macro_ecy_mop else "<"
+
     with st.expander("🛡 손절 / 익절"):
         use_atr_stop = st.toggle(
             "ATR 손절 사용",
@@ -607,6 +667,25 @@ def _collect_params() -> StrategyParams:
         initial_cash       = float(initial_cash),
         fee_bps            = float(fee_bps),
         slip_bps           = float(slip_bps),
+        # 거시지표 필터
+        macro_tips_enabled   = bool(st.session_state.get("macro_tips_on", False)),
+        macro_tips_mode      = "value" if st.session_state.get("macro_tips_mode", "절대값 비교") == "절대값 비교" else "ma_cross",
+        macro_tips_operator  = st.session_state.get("_tips_op", "<"),
+        macro_tips_threshold = float(st.session_state.get("macro_tips_thr", 2.0)),
+        macro_tips_ma_period = int(st.session_state.get("macro_tips_ma", 60)),
+        macro_tips_ma_op     = st.session_state.get("_tips_op", "<"),
+        macro_cape_enabled   = bool(st.session_state.get("macro_cape_on", False)),
+        macro_cape_mode      = "value" if st.session_state.get("macro_cape_mode", "절대값 비교") == "절대값 비교" else "ma_cross",
+        macro_cape_operator  = st.session_state.get("_cape_op", "<"),
+        macro_cape_threshold = float(st.session_state.get("macro_cape_thr", 30.0)),
+        macro_cape_ma_period = int(st.session_state.get("macro_cape_ma", 12)),
+        macro_cape_ma_op     = st.session_state.get("_cape_op", "<"),
+        macro_ecy_enabled    = bool(st.session_state.get("macro_ecy_on", False)),
+        macro_ecy_mode       = "value" if st.session_state.get("macro_ecy_mode", "절대값 비교") == "절대값 비교" else "ma_cross",
+        macro_ecy_operator   = st.session_state.get("_ecy_op", ">"),
+        macro_ecy_threshold  = float(st.session_state.get("macro_ecy_thr", 0.0)),
+        macro_ecy_ma_period  = int(st.session_state.get("macro_ecy_ma", 60)),
+        macro_ecy_ma_op      = st.session_state.get("_ecy_op", ">"),
     )
 
 
