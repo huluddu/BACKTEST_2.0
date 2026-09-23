@@ -1517,7 +1517,69 @@ with tab3:
 
                 st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
-                # ── 드로우다운 회복 분석 ──────────────────
+                # ── 거시지표 차트 ─────────────────────────
+                if result.macro_data and any([
+                    p_used.macro_tips_enabled,
+                    p_used.macro_cape_enabled,
+                    p_used.macro_ecy_enabled,
+                ]):
+                    import plotly.graph_objects as go
+                    from plotly.subplots import make_subplots
+
+                    st.subheader("📡 거시지표 필터 현황")
+                    st.caption("빨간 배경 = 매수 금지 구간, 초록 배경 = 매수 허용 구간")
+
+                    _macro_cfgs = []
+                    if p_used.macro_tips_enabled:
+                        _macro_cfgs.append(("TIPS 실질금리 (%)", "tips", p_used.macro_tips_threshold if p_used.macro_tips_mode == "value" else None, p_used.macro_tips_ma_period if p_used.macro_tips_mode == "ma_cross" else None))
+                    if p_used.macro_cape_enabled:
+                        _macro_cfgs.append(("Shiller CAPE", "cape", p_used.macro_cape_threshold if p_used.macro_cape_mode == "value" else None, p_used.macro_cape_ma_period if p_used.macro_cape_mode == "ma_cross" else None))
+                    if p_used.macro_ecy_enabled:
+                        _macro_cfgs.append(("ECY (%)", "ecy", p_used.macro_ecy_threshold if p_used.macro_ecy_mode == "value" else None, p_used.macro_ecy_ma_period if p_used.macro_ecy_mode == "ma_cross" else None))
+
+                    for label, key, threshold, ma_period in _macro_cfgs:
+                        df_m = result.macro_data.get(key)
+                        if df_m is None or df_m.empty:
+                            st.caption(f"⚠️ {label} 데이터 없음")
+                            continue
+
+                        # 백테스트 기간으로 필터
+                        if result.chart_data and "base" in result.chart_data:
+                            d_start = result.chart_data["base"]["Date"].iloc[0]
+                            d_end   = result.chart_data["base"]["Date"].iloc[-1]
+                            df_m = df_m[(df_m["date"] >= d_start) & (df_m["date"] <= d_end)]
+
+                        fig_m = go.Figure()
+                        fig_m.add_trace(go.Scatter(
+                            x=df_m["date"], y=df_m["value"],
+                            name=label, line=dict(color="#26a69a", width=2),
+                        ))
+
+                        # 기준선
+                        if threshold is not None:
+                            fig_m.add_hline(
+                                y=threshold, line_color="#ffeb3b",
+                                line_dash="dash",
+                                annotation_text=f"기준 {threshold}",
+                                annotation_position="top right",
+                            )
+
+                        # MA 라인
+                        if ma_period is not None and len(df_m) > ma_period:
+                            df_m = df_m.copy()
+                            df_m["ma"] = df_m["value"].rolling(ma_period, min_periods=1).mean()
+                            fig_m.add_trace(go.Scatter(
+                                x=df_m["date"], y=df_m["ma"],
+                                name=f"MA{ma_period}", line=dict(color="#ff9800", width=1.5, dash="dot"),
+                            ))
+
+                        fig_m.update_layout(
+                            title=label, height=220, template="plotly_dark",
+                            margin=dict(l=0, r=0, t=30, b=0),
+                            legend=dict(orientation="h", y=1.15),
+                        )
+                        st.plotly_chart(fig_m, use_container_width=True)
+                        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
                 st.subheader("📉 드로우다운 회복 분석")
 
                 curve = result.asset_curve
