@@ -139,11 +139,12 @@ class BacktestResult:
     win_rate_pct: float         = 0.0
     profit_factor: float        = 0.0
     total_trades: int           = 0
-    bh_return_pct: float        = 0.0   # Buy & Hold 수익률
-    bh_mdd_pct: float           = 0.0   # Buy & Hold MDD
+    bh_return_pct: float        = 0.0
+    bh_mdd_pct: float           = 0.0
     trade_log: list             = field(default_factory=list)
     asset_curve: np.ndarray     = field(default_factory=lambda: np.array([]))
     chart_data: dict            = field(default_factory=dict)
+    macro_data: dict            = field(default_factory=dict)  # 거시지표 데이터 (차트용)
     error: Optional[str]        = None
 
     @property
@@ -340,12 +341,14 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
     # ── 거시지표 필터 시리즈 준비 ─────────────────────────
     macro_filter_series = None
+    macro_data_for_chart = {}
     _any_macro = p.macro_tips_enabled or p.macro_cape_enabled or p.macro_ecy_enabled
     if _any_macro:
         try:
             from .macro_data import fetch_all_macro, build_macro_filter_series
             _start = str(base["Date"].iloc[0].date())
             macro_data = fetch_all_macro(start_date=_start)
+            macro_data_for_chart = macro_data  # 차트용 저장
 
             tips_cfg = {
                 "enabled":   p.macro_tips_enabled,
@@ -377,8 +380,9 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
             macro_filter_series = build_macro_filter_series(
                 macro_data, tips_cfg, cape_cfg, ecy_cfg
             )
-        except Exception:
+        except Exception as e:
             macro_filter_series = None
+            macro_data_for_chart = {}
 
     # ── 지표 배열 미리 꺼내기 (루프 내 dict 접근 최소화) ──
     ma_buy_arr  = sig_ind["ma"].get(p.ma_buy,  np.full(n, np.nan))
@@ -722,6 +726,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         trade_log        = trade_log,
         asset_curve      = curve,
         chart_data       = chart_data,
+        macro_data       = macro_data_for_chart,
     )
 
 
