@@ -43,15 +43,17 @@ def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.Data
 
     try:
         resp = requests.get(FRED_BASE, params={
-            "series_id":       series_id,
-            "api_key":         api_key,
-            "file_type":       "json",
+            "series_id":         series_id,
+            "api_key":           api_key,
+            "file_type":         "json",
             "observation_start": start_date,
-            "observation_end": date.today().strftime("%Y-%m-%d"),
-        }, timeout=10)
+            "observation_end":   date.today().strftime("%Y-%m-%d"),
+        }, timeout=15)
         resp.raise_for_status()
-        data = resp.json().get("observations", [])
-        df = pd.DataFrame(data)[["date", "value"]]
+        observations = resp.json().get("observations", [])
+        if not observations:
+            return pd.DataFrame()
+        df = pd.DataFrame(observations)[["date", "value"]]
         df["date"]  = pd.to_datetime(df["date"])
         df["value"] = pd.to_numeric(df["value"], errors="coerce")
         df = df.dropna().sort_values("date").reset_index(drop=True)
@@ -110,41 +112,35 @@ def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
 def fetch_all_macro(start_date: str = "1990-01-01") -> dict:
     """
     모든 거시지표 한 번에 가져오기.
-    Returns: {
-        "tips":  DataFrame (date, value) - 10년 TIPS 실질금리 %
-        "cape":  DataFrame (date, value) - Shiller CAPE
-        "ecy":   DataFrame (date, value) - Excess CAPE Yield %
-    }
     """
-    # TIPS 실질금리 (일간)
+    # TIPS 실질금리 (일간, FRED DFII10 - 2003년부터 존재)
     tips = fetch_fred_series("DFII10", start_date)
 
-    # CAPE (월간) - FRED 직접 또는 계산
+    # CAPE (월간)
     cape = fetch_shiller_cape(start_date)
 
-    # ECY = (1/CAPE) - TIPS/100
+    # ECY = (1/CAPE * 100) - TIPS
     ecy = pd.DataFrame()
     if not cape.empty and not tips.empty:
         try:
-            # CAPE를 월간 → 일간으로 forward fill
-            cape_daily = cape.set_index("date").reindex(
-                pd.date_range(cape["date"].min(), date.today(), freq="D")
-            ).ffill().reset_index().rename(columns={"index": "date"})
+            # CAPE 월간 → 일간 forward fill
+            cape_idx = cape.set_index("date")["value"]
+            date_range = pd.date_range(
+                max(cape["date"].min(), tips["date"].min()),
+                min(cape["date"].max(), tips["date"].max()),
+                freq="D"
+            )
+            cape_daily = cape_idx.reindex(date_range).ffill()
+            tips_daily = tips.set_index("date")["value"].reindex(date_range).ffill()
 
-            tips_idx = tips.set_index("date")["value"]
-            ecy_rows = []
-            for _, row in cape_daily.iterrows():
-                d = row["date"]
-                if d in tips_idx.index:
-                    tips_val = tips_idx[d]
-                    cape_val = row["value"]
-                    if pd.notna(cape_val) and cape_val > 0:
-                        ecy_val = (1 / cape_val * 100) - tips_val
-                        ecy_rows.append({"date": d, "value": round(ecy_val, 3)})
-
-            ecy = pd.DataFrame(ecy_rows) if ecy_rows else pd.DataFrame()
+            ecy_vals = (1.0 / cape_daily * 100) - tips_daily
+            ecy_vals = ecy_vals.dropna()
+            ecy = pd.DataFrame({
+                "date":  ecy_vals.index,
+                "value": ecy_vals.round(3).values
+            }).reset_index(drop=True)
         except Exception:
-            pass
+            ecy = pd.DataFrame()
 
     return {"tips": tips, "cape": cape, "ecy": ecy}
 
