@@ -415,9 +415,16 @@ with st.sidebar:
         st.session_state["_mkt_ma_p"] = mkt_ma_p
 
     with st.expander("📡 거시지표 필터"):
-        _fred_ok = bool(st.secrets.get("fred_api_key", "")) if hasattr(st, "secrets") else False
+        try:
+            _fred_key = st.secrets.get("fred_api_key", "")
+            _fred_ok  = bool(_fred_key and str(_fred_key).strip())
+        except Exception:
+            _fred_ok = False
+
         if not _fred_ok:
             st.caption("⚠️ FRED API 키가 없습니다. Streamlit secrets에 `fred_api_key`를 등록하세요.")
+        else:
+            st.caption("✅ FRED API 키 연결됨")
 
         # ── TIPS 실질금리 ──────────────────────────────
         macro_tips_on = st.toggle("10년 TIPS 실질금리 필터", key="macro_tips_on")
