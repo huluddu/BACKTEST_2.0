@@ -31,7 +31,6 @@ def _get_fred_api_key() -> str | None:
         return None
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
 def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.DataFrame:
     """
     FRED에서 시계열 데이터 가져오기.
