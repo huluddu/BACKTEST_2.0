@@ -60,36 +60,50 @@ def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.Data
         return pd.DataFrame()
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=86400)
 def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
     """
     Shiller CAPE 데이터 가져오기.
-    FRED 시리즈: CAPE (Cyclically Adjusted Price-to-Earnings Ratio)
+    Yale 교수 공식 Excel 파일에서 직접 파싱.
     """
-    # FRED에 Shiller CAPE가 없으면 직접 계산
-    # FRED: 'MULTPL/SHILLER_PE_RATIO_MONTH' 는 Quandl
-    # 대신 FRED의 'CAPE' 시리즈 또는 계산
-    df = fetch_fred_series("CAPE", start_date)
-    if df.empty:
-        # fallback: S&P500 실질주가 / 10년 실질이익으로 근사
-        # FRED에 직접 CAPE 시리즈가 없으므로 Yale 데이터 사용
-        try:
-            url = "https://shiller-data.vercel.app/api/cape"
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200:
-                raw = resp.json()
-                records = raw.get("data", raw) if isinstance(raw, dict) else raw
-                df = pd.DataFrame(records)
-                if "date" in df.columns and "cape" in df.columns:
-                    df = df[["date", "cape"]].rename(columns={"cape": "value"})
-                    df["date"]  = pd.to_datetime(df["date"])
-                    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-                    df = df.dropna().sort_values("date")
-                    df = df[df["date"] >= pd.to_datetime(start_date)]
-                    return df.reset_index(drop=True)
-        except Exception:
-            pass
-    return df
+    try:
+        # Yale Shiller 공식 데이터 (Excel)
+        url = "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
+        df_raw = pd.read_excel(url, sheet_name="Data", header=7)
+        # 컬럼: Date, P, D, E, CPI, Date Fraction, Long Interest Rate, Real Price, Real Dividend, Real Total Return Price, Real Earnings, Real TR Scaled Earnings, CAPE, TR CAPE, Excess CAPE Yield, Total Return Bond, Real Total Return Bond, 10-Year Annualized Stock Real Return, 10-Year Annualized Bond Real Return, Real 10-year Excess Annualized Returns
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
+        # 날짜 컬럼 찾기
+        date_col = df_raw.columns[0]
+        cape_col = "CAPE" if "CAPE" in df_raw.columns else [c for c in df_raw.columns if "CAPE" in str(c)][0]
+
+        df = df_raw[[date_col, cape_col]].copy()
+        df.columns = ["date_raw", "value"]
+        df = df.dropna(subset=["value"])
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        df = df.dropna(subset=["value"])
+
+        # 날짜 변환 (1871.01 형식)
+        def _parse_shiller_date(d):
+            try:
+                d = float(d)
+                year = int(d)
+                month = round((d - year) * 100)
+                if month == 0: month = 1
+                if month > 12: month = 12
+                return pd.Timestamp(year=year, month=month, day=1)
+            except Exception:
+                return pd.NaT
+
+        df["date"] = df["date_raw"].apply(_parse_shiller_date)
+        df = df.dropna(subset=["date"])
+        df = df[["date", "value"]].sort_values("date")
+        df = df[df["date"] >= pd.to_datetime(start_date)]
+        return df.reset_index(drop=True)
+
+    except Exception:
+        # fallback: FRED 시도
+        return fetch_fred_series("CAPE", start_date)
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
