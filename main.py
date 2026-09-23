@@ -1524,10 +1524,17 @@ with tab3:
                     p_used.macro_ecy_enabled,
                 ]):
                     import plotly.graph_objects as go
-                    from plotly.subplots import make_subplots
 
                     st.subheader("📡 거시지표 필터 현황")
                     st.caption("빨간 배경 = 매수 금지 구간, 초록 배경 = 매수 허용 구간")
+
+                    # 디버깅 정보
+                    for k in ["tips", "cape", "ecy"]:
+                        df_dbg = result.macro_data.get(k)
+                        if df_dbg is not None and not df_dbg.empty:
+                            st.caption(f"✅ {k}: {len(df_dbg)}행, {df_dbg['date'].min().date()} ~ {df_dbg['date'].max().date()}")
+                        else:
+                            st.caption(f"❌ {k}: 데이터 없음")
 
                     _macro_cfgs = []
                     if p_used.macro_tips_enabled:
