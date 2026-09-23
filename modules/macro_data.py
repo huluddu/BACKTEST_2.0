@@ -108,22 +108,14 @@ def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
         return fetch_fred_series("CAPE", start_date)
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
 def fetch_all_macro(start_date: str = "1990-01-01") -> dict:
-    """
-    모든 거시지표 한 번에 가져오기.
-    """
-    # TIPS 실질금리 (일간, FRED DFII10 - 2003년부터 존재)
+    """모든 거시지표 한 번에 가져오기."""
     tips = fetch_fred_series("DFII10", start_date)
-
-    # CAPE (월간)
     cape = fetch_shiller_cape(start_date)
 
-    # ECY = (1/CAPE * 100) - TIPS
     ecy = pd.DataFrame()
     if not cape.empty and not tips.empty:
         try:
-            # CAPE 월간 → 일간 forward fill
             cape_idx = cape.set_index("date")["value"]
             date_range = pd.date_range(
                 max(cape["date"].min(), tips["date"].min()),
@@ -132,7 +124,6 @@ def fetch_all_macro(start_date: str = "1990-01-01") -> dict:
             )
             cape_daily = cape_idx.reindex(date_range).ffill()
             tips_daily = tips.set_index("date")["value"].reindex(date_range).ffill()
-
             ecy_vals = (1.0 / cape_daily * 100) - tips_daily
             ecy_vals = ecy_vals.dropna()
             ecy = pd.DataFrame({
