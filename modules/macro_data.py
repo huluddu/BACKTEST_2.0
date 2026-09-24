@@ -35,34 +35,26 @@ def _get_fred_api_key() -> str | None:
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
     """
-    TIPS 실질금리를 yfinance로 가져오기.
-    ^TYX (30년 국채) 대신 DFII10 근사: TIP ETF yield 또는 직접 계산
-    yfinance에서 TIPS ETF (TIP) 가격으로 대체.
-    실제로는 ^IRX, ^FVX, ^TNX 등 국채금리를 사용.
+    TIPS 실질금리 근사: ^TNX(10년 국채 명목금리) - 2.0%
+    FRED 접근 불가 시 대체 사용.
     """
     try:
         import yfinance as yf
-        # ^TNX = 10년 국채명목금리 (%)
         tnx = yf.download("^TNX", start=start_date, progress=False, auto_adjust=True)
-        if tnx.empty:
+        if tnx is None or tnx.empty:
             return pd.DataFrame()
-
         if isinstance(tnx.columns, pd.MultiIndex):
             tnx.columns = tnx.columns.get_level_values(0)
         tnx = tnx.reset_index()
-
-        # FRED TIPS 실질금리 근사: 명목금리 - 기대인플레이션(약 2~2.5%)
-        # 더 정확하게는 ^TNX - INFLATION_BREAKEVEN 이지만
-        # 간단히 ^TNX - 2.0 으로 근사 (기대인플레이션 2%)
+        date_col  = "Date" if "Date" in tnx.columns else tnx.columns[0]
+        close_col = "Close" if "Close" in tnx.columns else "close"
         df = pd.DataFrame({
-            "date":  pd.to_datetime(tnx.iloc[:, 0]),
-            "value": pd.to_numeric(tnx["Close"], errors="coerce") - 2.0
+            "date":  pd.to_datetime(tnx[date_col]),
+            "value": pd.to_numeric(tnx[close_col], errors="coerce") - 2.0,
         })
         df = df.dropna().sort_values("date").reset_index(drop=True)
-        _fred_last_error["DFII10"] = None
         return df
-    except Exception as e:
-        _fred_last_error["DFII10"] = str(e)
+    except Exception:
         return pd.DataFrame()
 
 def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.DataFrame:
