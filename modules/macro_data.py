@@ -261,3 +261,4 @@ def build_macro_filter_series(
     _apply_filter(macro_data.get("ecy"),  ecy_cfg)
 
     return result
+
