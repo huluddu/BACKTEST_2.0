@@ -32,12 +32,13 @@ def _get_fred_api_key() -> str | None:
         return None
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
 def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
-    """
-    TIPS 실질금리 근사: ^TNX(10년 국채 명목금리) - 2.0%
-    FRED 접근 불가 시 대체 사용.
-    """
+    """TIPS 실질금리 근사: ^TNX - 2.0% (성공 결과만 session_state 캐시)"""
+    cache_key = f"macro_tips_{start_date}"
+    cached = st.session_state.get(cache_key)
+    if cached is not None and not cached.empty:
+        return cached
+
     try:
         import yfinance as yf
         tnx = yf.download("^TNX", start=start_date, progress=False, auto_adjust=True)
@@ -53,6 +54,8 @@ def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
             "value": pd.to_numeric(tnx[close_col], errors="coerce") - 2.0,
         })
         df = df.dropna().sort_values("date").reset_index(drop=True)
+        if not df.empty:
+            st.session_state[cache_key] = df
         return df
     except Exception:
         return pd.DataFrame()
@@ -95,50 +98,58 @@ def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.Data
         return pd.DataFrame()
 
 
-@st.cache_data(show_spinner=False, ttl=86400)
-def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
-    """
-    Shiller CAPE 데이터 가져오기.
-    Yale 교수 공식 Excel 파일에서 직접 파싱.
-    """
+def _parse_shiller_excel() -> pd.DataFrame:
+    """Yale Excel 파일에서 CAPE 파싱 (캐시 없음)"""
     try:
-        # Yale Shiller 공식 데이터 (Excel)
         url = "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
         df_raw = pd.read_excel(url, sheet_name="Data", header=7)
-        # 컬럼: Date, P, D, E, CPI, Date Fraction, Long Interest Rate, Real Price, Real Dividend, Real Total Return Price, Real Earnings, Real TR Scaled Earnings, CAPE, TR CAPE, Excess CAPE Yield, Total Return Bond, Real Total Return Bond, 10-Year Annualized Stock Real Return, 10-Year Annualized Bond Real Return, Real 10-year Excess Annualized Returns
         df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-        # 날짜 컬럼 찾기
         date_col = df_raw.columns[0]
-        cape_col = "CAPE" if "CAPE" in df_raw.columns else [c for c in df_raw.columns if "CAPE" in str(c)][0]
+        cape_candidates = [c for c in df_raw.columns if "CAPE" in str(c).upper()]
+        if not cape_candidates:
+            return pd.DataFrame()
+        cape_col = cape_candidates[0]
 
         df = df_raw[[date_col, cape_col]].copy()
         df.columns = ["date_raw", "value"]
-        df = df.dropna(subset=["value"])
         df["value"] = pd.to_numeric(df["value"], errors="coerce")
         df = df.dropna(subset=["value"])
 
-        # 날짜 변환 (1871.01 형식)
-        def _parse_shiller_date(d):
+        def _parse_date(d):
             try:
                 d = float(d)
-                year = int(d)
+                year  = int(d)
                 month = round((d - year) * 100)
-                if month == 0: month = 1
-                if month > 12: month = 12
+                month = max(1, min(12, month or 1))
                 return pd.Timestamp(year=year, month=month, day=1)
             except Exception:
                 return pd.NaT
 
-        df["date"] = df["date_raw"].apply(_parse_shiller_date)
+        df["date"] = df["date_raw"].apply(_parse_date)
         df = df.dropna(subset=["date"])
-        df = df[["date", "value"]].sort_values("date")
-        df = df[df["date"] >= pd.to_datetime(start_date)]
-        return df.reset_index(drop=True)
-
+        return df[["date", "value"]].sort_values("date").reset_index(drop=True)
     except Exception:
-        # fallback: FRED 시도
-        return fetch_fred_series("CAPE", start_date)
+        return pd.DataFrame()
+
+
+def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
+    """Shiller CAPE - 성공한 결과만 session_state에 캐시"""
+    cache_key = f"macro_cape_{start_date}"
+
+    # 캐시 확인
+    cached = st.session_state.get(cache_key)
+    if cached is not None and not cached.empty:
+        return cached
+
+    # 새로 fetch
+    df = _parse_shiller_excel()
+    if df.empty:
+        return pd.DataFrame()  # 빈 결과는 캐시 안 함
+
+    df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
+    st.session_state[cache_key] = df  # 성공한 결과만 캐시
+    return df
 
 
 def fetch_all_macro(start_date: str = "1990-01-01") -> dict:
@@ -261,4 +272,3 @@ def build_macro_filter_series(
     _apply_filter(macro_data.get("ecy"),  ecy_cfg)
 
     return result
-
