@@ -433,6 +433,8 @@ with st.sidebar:
         # ── TIPS 실질금리 ──────────────────────────────
         macro_tips_on = st.toggle("10년 TIPS 실질금리 필터", key="macro_tips_on")
         if macro_tips_on:
+            st.caption("💡 FRED 접근 불가 시 ^TNX(10년 국채) - 2% 로 근사")
+        if macro_tips_on:
             macro_tips_mode = st.radio("필터 방식", ["절대값 비교", "이평선 크로스"],
                                         horizontal=True, key="macro_tips_mode")
             if macro_tips_mode == "절대값 비교":
