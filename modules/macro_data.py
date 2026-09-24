@@ -31,10 +31,13 @@ def _get_fred_api_key() -> str | None:
         return None
 
 
+_fred_last_error = {}  # 오류 메시지 저장용
+
 def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.DataFrame:
     api_key = _get_fred_api_key()
     if not api_key:
-        return pd.DataFrame({"error": ["API 키 없음"]})
+        _fred_last_error[series_id] = "API 키 없음"
+        return pd.DataFrame()
 
     try:
         resp = requests.get(FRED_BASE, params={
@@ -44,25 +47,28 @@ def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.Data
             "observation_start": start_date,
             "observation_end":   date.today().strftime("%Y-%m-%d"),
         }, timeout=15)
-        
+
         if resp.status_code != 200:
-            return pd.DataFrame({"error": [f"HTTP {resp.status_code}: {resp.text[:100]}"]})
-        
+            _fred_last_error[series_id] = f"HTTP {resp.status_code}: {resp.text[:100]}"
+            return pd.DataFrame()
+
         json_data = resp.json()
         observations = json_data.get("observations", [])
-        
+
         if not observations:
-            error_msg = json_data.get("error_message", "observations 없음")
-            return pd.DataFrame({"error": [error_msg]})
-        
+            _fred_last_error[series_id] = json_data.get("error_message", "observations 없음")
+            return pd.DataFrame()
+
         df = pd.DataFrame(observations)[["date", "value"]]
         df["date"]  = pd.to_datetime(df["date"])
         df["value"] = pd.to_numeric(df["value"], errors="coerce")
         df = df.dropna().sort_values("date").reset_index(drop=True)
+        _fred_last_error[series_id] = None
         return df
 
     except Exception as e:
-        return pd.DataFrame({"error": [str(e)]})
+        _fred_last_error[series_id] = str(e)
+        return pd.DataFrame()
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
