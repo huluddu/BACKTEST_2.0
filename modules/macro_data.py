@@ -99,38 +99,69 @@ def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.Data
 
 
 def _parse_shiller_excel() -> pd.DataFrame:
-    """Yale Excel 파일에서 CAPE 파싱 (캐시 없음)"""
-    try:
-        url = "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
-        df_raw = pd.read_excel(url, sheet_name="Data", header=7)
-        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+    """Yale Excel 파일에서 CAPE 파싱 - 여러 소스 시도"""
 
+    # 소스 1: Yale 공식 Excel (타임아웃 30초)
+    try:
+        import urllib.request
+        url = "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
+        # pandas read_excel에 timeout 없음 → urllib로 먼저 다운로드
+        import io
+        req = urllib.request.urlopen(url, timeout=30)
+        data = req.read()
+        df_raw = pd.read_excel(io.BytesIO(data), sheet_name="Data", header=7)
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
         date_col = df_raw.columns[0]
         cape_candidates = [c for c in df_raw.columns if "CAPE" in str(c).upper()]
-        if not cape_candidates:
-            return pd.DataFrame()
-        cape_col = cape_candidates[0]
+        if cape_candidates:
+            cape_col = cape_candidates[0]
+            df = df_raw[[date_col, cape_col]].copy()
+            df.columns = ["date_raw", "value"]
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+            df = df.dropna(subset=["value"])
 
-        df = df_raw[[date_col, cape_col]].copy()
-        df.columns = ["date_raw", "value"]
-        df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        df = df.dropna(subset=["value"])
+            def _parse_date(d):
+                try:
+                    d = float(d)
+                    year  = int(d)
+                    month = round((d - year) * 100)
+                    month = max(1, min(12, month or 1))
+                    return pd.Timestamp(year=year, month=month, day=1)
+                except Exception:
+                    return pd.NaT
 
-        def _parse_date(d):
-            try:
-                d = float(d)
-                year  = int(d)
-                month = round((d - year) * 100)
-                month = max(1, min(12, month or 1))
-                return pd.Timestamp(year=year, month=month, day=1)
-            except Exception:
-                return pd.NaT
-
-        df["date"] = df["date_raw"].apply(_parse_date)
-        df = df.dropna(subset=["date"])
-        return df[["date", "value"]].sort_values("date").reset_index(drop=True)
+            df["date"] = df["date_raw"].apply(_parse_date)
+            df = df.dropna(subset=["date"])
+            result = df[["date", "value"]].sort_values("date").reset_index(drop=True)
+            if not result.empty:
+                return result
     except Exception:
-        return pd.DataFrame()
+        pass
+
+    # 소스 2: multpl.com (HTML 파싱)
+    try:
+        import requests as req2
+        resp = req2.get(
+            "https://www.multpl.com/shiller-pe/table/by-month",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=15,
+        )
+        tables = pd.read_html(resp.text)
+        if tables:
+            df = tables[0]
+            df.columns = ["date_raw", "value"]
+            df["date"]  = pd.to_datetime(df["date_raw"], errors="coerce")
+            df["value"] = pd.to_numeric(
+                df["value"].astype(str).str.replace(",", "").str.extract(r"([\d.]+)")[0],
+                errors="coerce"
+            )
+            df = df.dropna().sort_values("date").reset_index(drop=True)
+            if not df.empty:
+                return df[["date", "value"]]
+    except Exception:
+        pass
+
+    return pd.DataFrame()
 
 
 def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
