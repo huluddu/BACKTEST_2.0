@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 
 FRED_BASE = "https://api.fred.stlouisfed.org/series/observations"
+_fred_last_error = {}  # 오류 메시지 저장용
 
 
 def _get_fred_api_key() -> str | None:
@@ -31,7 +32,38 @@ def _get_fred_api_key() -> str | None:
         return None
 
 
-_fred_last_error = {}  # 오류 메시지 저장용
+@st.cache_data(show_spinner=False, ttl=3600)
+def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
+    """
+    TIPS 실질금리를 yfinance로 가져오기.
+    ^TYX (30년 국채) 대신 DFII10 근사: TIP ETF yield 또는 직접 계산
+    yfinance에서 TIPS ETF (TIP) 가격으로 대체.
+    실제로는 ^IRX, ^FVX, ^TNX 등 국채금리를 사용.
+    """
+    try:
+        import yfinance as yf
+        # ^TNX = 10년 국채명목금리 (%)
+        tnx = yf.download("^TNX", start=start_date, progress=False, auto_adjust=True)
+        if tnx.empty:
+            return pd.DataFrame()
+
+        if isinstance(tnx.columns, pd.MultiIndex):
+            tnx.columns = tnx.columns.get_level_values(0)
+        tnx = tnx.reset_index()
+
+        # FRED TIPS 실질금리 근사: 명목금리 - 기대인플레이션(약 2~2.5%)
+        # 더 정확하게는 ^TNX - INFLATION_BREAKEVEN 이지만
+        # 간단히 ^TNX - 2.0 으로 근사 (기대인플레이션 2%)
+        df = pd.DataFrame({
+            "date":  pd.to_datetime(tnx.iloc[:, 0]),
+            "value": pd.to_numeric(tnx["Close"], errors="coerce") - 2.0
+        })
+        df = df.dropna().sort_values("date").reset_index(drop=True)
+        _fred_last_error["DFII10"] = None
+        return df
+    except Exception as e:
+        _fred_last_error["DFII10"] = str(e)
+        return pd.DataFrame()
 
 def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.DataFrame:
     api_key = _get_fred_api_key()
@@ -119,7 +151,10 @@ def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
 
 def fetch_all_macro(start_date: str = "1990-01-01") -> dict:
     """모든 거시지표 한 번에 가져오기."""
+    # TIPS 실질금리: FRED 시도 → 실패 시 yfinance(^TNX-2%) 대체
     tips = fetch_fred_series("DFII10", start_date)
+    if tips.empty:
+        tips = fetch_tips_via_yfinance(start_date)
     cape = fetch_shiller_cape(start_date)
 
     ecy = pd.DataFrame()
