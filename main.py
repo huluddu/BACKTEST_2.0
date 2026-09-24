@@ -1531,14 +1531,12 @@ with tab3:
                     st.caption("빨간 배경 = 매수 금지 구간, 초록 배경 = 매수 허용 구간")
 
                     # 디버깅 정보
-                    from modules.macro_data import _fred_last_error
                     for k in ["tips", "cape", "ecy"]:
                         df_dbg = result.macro_data.get(k)
                         if df_dbg is not None and not df_dbg.empty and "date" in df_dbg.columns:
                             st.caption(f"✅ {k}: {len(df_dbg)}행, {df_dbg['date'].min().date()} ~ {df_dbg['date'].max().date()}")
                         else:
-                            err = _fred_last_error.get("DFII10" if k == "tips" else k, "")
-                            st.caption(f"❌ {k}: 데이터 없음" + (f" ({err})" if err else ""))
+                            st.caption(f"❌ {k}: 데이터 없음")
 
                     _macro_cfgs = []
                     if p_used.macro_tips_enabled:
