@@ -33,10 +33,13 @@ def _get_fred_api_key() -> str | None:
 
 
 def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
-    """TIPS 실질금리 근사: ^TNX - 2.0% (성공 결과만 session_state 캐시)"""
-    cache_key = f"macro_tips_{start_date}"
-    cached = st.session_state.get(cache_key)
-    if cached is not None and not cached.empty:
+    """TIPS 실질금리 근사: ^TNX - 2.0% (1시간 캐시)"""
+    import time as _time
+    cache_key  = f"macro_tips_{start_date}"
+    cache_time = f"macro_tips_time_{start_date}"
+    cached    = st.session_state.get(cache_key)
+    cached_at = st.session_state.get(cache_time, 0)
+    if cached is not None and not cached.empty and (_time.time() - cached_at) < 3600:
         return cached
 
     try:
@@ -55,7 +58,8 @@ def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
         })
         df = df.dropna().sort_values("date").reset_index(drop=True)
         if not df.empty:
-            st.session_state[cache_key] = df
+            st.session_state[cache_key]  = df
+            st.session_state[cache_time] = _time.time()
         return df
     except Exception:
         return pd.DataFrame()
@@ -165,21 +169,23 @@ def _parse_shiller_excel() -> pd.DataFrame:
 
 
 def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
-    """Shiller CAPE - 성공한 결과만 session_state에 캐시"""
-    cache_key = f"macro_cape_{start_date}"
+    """Shiller CAPE - 성공 결과만 1시간 캐시"""
+    import time as _time
+    cache_key  = f"macro_cape_{start_date}"
+    cache_time = f"macro_cape_time_{start_date}"
+    cached    = st.session_state.get(cache_key)
+    cached_at = st.session_state.get(cache_time, 0)
 
-    # 캐시 확인
-    cached = st.session_state.get(cache_key)
-    if cached is not None and not cached.empty:
+    if cached is not None and not cached.empty and (_time.time() - cached_at) < 3600:
         return cached
 
-    # 새로 fetch
     df = _parse_shiller_excel()
     if df.empty:
-        return pd.DataFrame()  # 빈 결과는 캐시 안 함
+        return pd.DataFrame()  # 실패 시 캐시 안 함 → 다음 호출 시 재시도
 
     df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
-    st.session_state[cache_key] = df  # 성공한 결과만 캐시
+    st.session_state[cache_key]  = df
+    st.session_state[cache_time] = _time.time()
     return df
 
 
