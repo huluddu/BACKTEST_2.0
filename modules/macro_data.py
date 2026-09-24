@@ -1,46 +1,96 @@
 """
 macro_data.py - 거시경제 지표 데이터 로더
-FRED API로 TIPS 실질금리, CAPE, ECY 가져오기
+CAPE: 번들 CSV → Yale → multpl.com
+TIPS: yfinance ^TNX - 2%
+ECY:  CAPE + TIPS로 계산
 """
+import os, time, io
 import pandas as pd
 import numpy as np
-import requests
 import streamlit as st
-from datetime import date, timedelta
+from datetime import date
+
+# 모듈 레벨 캐시 (st.cache_data/session_state 문제 회피)
+_cache = {}
+_cache_time = {}
+_CACHE_TTL = 3600  # 1시간
 
 
-FRED_BASE = "https://api.fred.stlouisfed.org/series/observations"
-_fred_last_error = {}  # 오류 메시지 저장용
-
-
-def _get_fred_api_key() -> str | None:
-    """Streamlit secrets에서 FRED API 키 가져오기"""
+def _get_fred_api_key():
     try:
         key = st.secrets.get("fred_api_key", None)
-        if key:
-            return str(key).strip()
-        # 섹션 없이 직접 접근 시도
-        for k in ["fred_api_key", "FRED_API_KEY", "fred_key"]:
-            try:
-                val = getattr(st.secrets, k, None)
-                if val:
-                    return str(val).strip()
-            except Exception:
-                pass
-        return None
+        if key: return str(key).strip()
+        val = getattr(st.secrets, "fred_api_key", None)
+        if val: return str(val).strip()
     except Exception:
-        return None
+        pass
+    return None
+
+
+def _load_cape_csv() -> pd.DataFrame:
+    """번들 CSV에서 CAPE 로드"""
+    paths = [
+        os.path.join(os.path.dirname(__file__), "..", "data", "cape_data.csv"),
+        "/mount/src/backtest_2.0/data/cape_data.csv",
+    ]
+    for p in paths:
+        try:
+            if os.path.exists(p):
+                df = pd.read_csv(p)
+                df["date"]  = pd.to_datetime(df["date"], errors="coerce")
+                df["value"] = pd.to_numeric(df["value"], errors="coerce")
+                df = df.dropna().sort_values("date").reset_index(drop=True)
+                if not df.empty:
+                    return df
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+
+def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
+    cache_key = f"cape_{start_date}"
+    if cache_key in _cache and (time.time() - _cache_time.get(cache_key, 0)) < _CACHE_TTL:
+        return _cache[cache_key]
+
+    df = _load_cape_csv()
+    if df.empty:
+        # Yale 시도
+        try:
+            import urllib.request
+            req = urllib.request.urlopen(
+                "http://www.econ.yale.edu/~shiller/data/ie_data.xls", timeout=20)
+            df_raw = pd.read_excel(io.BytesIO(req.read()), sheet_name="Data", header=7)
+            df_raw.columns = [str(c).strip() for c in df_raw.columns]
+            date_col = df_raw.columns[0]
+            cape_col = [c for c in df_raw.columns if "CAPE" in str(c).upper()][0]
+            tmp = df_raw[[date_col, cape_col]].copy()
+            tmp.columns = ["date_raw", "value"]
+            tmp["value"] = pd.to_numeric(tmp["value"], errors="coerce")
+            tmp = tmp.dropna(subset=["value"])
+            def _p(d):
+                try:
+                    d=float(d); y=int(d); m=max(1,min(12,round((d-y)*100) or 1))
+                    return pd.Timestamp(year=y,month=m,day=1)
+                except: return pd.NaT
+            tmp["date"] = tmp["date_raw"].apply(_p)
+            tmp = tmp.dropna(subset=["date"])
+            df = tmp[["date","value"]].sort_values("date").reset_index(drop=True)
+        except Exception:
+            pass
+
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
+    _cache[cache_key] = df
+    _cache_time[cache_key] = time.time()
+    return df
 
 
 def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
-    """TIPS 실질금리 근사: ^TNX - 2.0% (1시간 캐시)"""
-    import time as _time
-    cache_key  = f"macro_tips_{start_date}"
-    cache_time = f"macro_tips_time_{start_date}"
-    cached    = st.session_state.get(cache_key)
-    cached_at = st.session_state.get(cache_time, 0)
-    if cached is not None and not cached.empty and (_time.time() - cached_at) < 3600:
-        return cached
+    cache_key = f"tips_{start_date}"
+    if cache_key in _cache and (time.time() - _cache_time.get(cache_key, 0)) < _CACHE_TTL:
+        return _cache[cache_key]
 
     try:
         import yfinance as yf
@@ -58,218 +108,51 @@ def fetch_tips_via_yfinance(start_date: str = "2003-01-01") -> pd.DataFrame:
         })
         df = df.dropna().sort_values("date").reset_index(drop=True)
         if not df.empty:
-            st.session_state[cache_key]  = df
-            st.session_state[cache_time] = _time.time()
+            _cache[cache_key] = df
+            _cache_time[cache_key] = time.time()
         return df
     except Exception:
         return pd.DataFrame()
-
-def fetch_fred_series(series_id: str, start_date: str = "1990-01-01") -> pd.DataFrame:
-    api_key = _get_fred_api_key()
-    if not api_key:
-        _fred_last_error[series_id] = "API 키 없음"
-        return pd.DataFrame()
-
-    try:
-        resp = requests.get(FRED_BASE, params={
-            "series_id":         series_id,
-            "api_key":           api_key,
-            "file_type":         "json",
-            "observation_start": start_date,
-            "observation_end":   date.today().strftime("%Y-%m-%d"),
-        }, timeout=15)
-
-        if resp.status_code != 200:
-            _fred_last_error[series_id] = f"HTTP {resp.status_code}: {resp.text[:100]}"
-            return pd.DataFrame()
-
-        json_data = resp.json()
-        observations = json_data.get("observations", [])
-
-        if not observations:
-            _fred_last_error[series_id] = json_data.get("error_message", "observations 없음")
-            return pd.DataFrame()
-
-        df = pd.DataFrame(observations)[["date", "value"]]
-        df["date"]  = pd.to_datetime(df["date"])
-        df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        df = df.dropna().sort_values("date").reset_index(drop=True)
-        _fred_last_error[series_id] = None
-        return df
-
-    except Exception as e:
-        _fred_last_error[series_id] = str(e)
-        return pd.DataFrame()
-
-
-def _parse_shiller_excel() -> pd.DataFrame:
-    """Yale Excel 파일에서 CAPE 파싱 - 여러 소스 시도"""
-
-    # 소스 1: Yale 공식 Excel (타임아웃 30초)
-    try:
-        import urllib.request
-        url = "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
-        # pandas read_excel에 timeout 없음 → urllib로 먼저 다운로드
-        import io
-        req = urllib.request.urlopen(url, timeout=30)
-        data = req.read()
-        df_raw = pd.read_excel(io.BytesIO(data), sheet_name="Data", header=7)
-        df_raw.columns = [str(c).strip() for c in df_raw.columns]
-        date_col = df_raw.columns[0]
-        cape_candidates = [c for c in df_raw.columns if "CAPE" in str(c).upper()]
-        if cape_candidates:
-            cape_col = cape_candidates[0]
-            df = df_raw[[date_col, cape_col]].copy()
-            df.columns = ["date_raw", "value"]
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-            df = df.dropna(subset=["value"])
-
-            def _parse_date(d):
-                try:
-                    d = float(d)
-                    year  = int(d)
-                    month = round((d - year) * 100)
-                    month = max(1, min(12, month or 1))
-                    return pd.Timestamp(year=year, month=month, day=1)
-                except Exception:
-                    return pd.NaT
-
-            df["date"] = df["date_raw"].apply(_parse_date)
-            df = df.dropna(subset=["date"])
-            result = df[["date", "value"]].sort_values("date").reset_index(drop=True)
-            if not result.empty:
-                return result
-    except Exception:
-        pass
-
-    # 소스 2: multpl.com (HTML 파싱)
-    try:
-        import requests as req2
-        resp = req2.get(
-            "https://www.multpl.com/shiller-pe/table/by-month",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=15,
-        )
-        tables = pd.read_html(resp.text)
-        if tables:
-            df = tables[0]
-            df.columns = ["date_raw", "value"]
-            df["date"]  = pd.to_datetime(df["date_raw"], errors="coerce")
-            df["value"] = pd.to_numeric(
-                df["value"].astype(str).str.replace(",", "").str.extract(r"([\d.]+)")[0],
-                errors="coerce"
-            )
-            df = df.dropna().sort_values("date").reset_index(drop=True)
-            if not df.empty:
-                return df[["date", "value"]]
-    except Exception:
-        pass
-
-    return pd.DataFrame()
-
-
-def fetch_shiller_cape(start_date: str = "1990-01-01") -> pd.DataFrame:
-    """Shiller CAPE - 성공 결과만 1시간 캐시"""
-    import time as _time
-    cache_key  = f"macro_cape_{start_date}"
-    cache_time = f"macro_cape_time_{start_date}"
-    cached    = st.session_state.get(cache_key)
-    cached_at = st.session_state.get(cache_time, 0)
-
-    if cached is not None and not cached.empty and (_time.time() - cached_at) < 3600:
-        return cached
-
-    df = _parse_shiller_excel()
-    if df.empty:
-        return pd.DataFrame()  # 실패 시 캐시 안 함 → 다음 호출 시 재시도
-
-    df = df[df["date"] >= pd.to_datetime(start_date)].reset_index(drop=True)
-    st.session_state[cache_key]  = df
-    st.session_state[cache_time] = _time.time()
-    return df
 
 
 def fetch_all_macro(start_date: str = "1990-01-01") -> dict:
-    """모든 거시지표 한 번에 가져오기."""
-    # TIPS 실질금리: FRED 시도 → 실패 시 yfinance(^TNX-2%) 대체
-    tips = fetch_fred_series("DFII10", start_date)
-    if tips.empty:
-        tips = fetch_tips_via_yfinance(start_date)
     cape = fetch_shiller_cape(start_date)
+    tips = fetch_tips_via_yfinance(start_date)
 
     ecy = pd.DataFrame()
     if not cape.empty and not tips.empty:
         try:
-            cape_idx = cape.set_index("date")["value"]
             date_range = pd.date_range(
                 max(cape["date"].min(), tips["date"].min()),
                 min(cape["date"].max(), tips["date"].max()),
                 freq="D"
             )
-            cape_daily = cape_idx.reindex(date_range).ffill()
-            tips_daily = tips.set_index("date")["value"].reindex(date_range).ffill()
-            ecy_vals = (1.0 / cape_daily * 100) - tips_daily
-            ecy_vals = ecy_vals.dropna()
-            ecy = pd.DataFrame({
-                "date":  ecy_vals.index,
-                "value": ecy_vals.round(3).values
-            }).reset_index(drop=True)
+            cape_d = cape.set_index("date")["value"].reindex(date_range).ffill()
+            tips_d = tips.set_index("date")["value"].reindex(date_range).ffill()
+            ecy_v  = (1.0 / cape_d * 100) - tips_d
+            ecy_v  = ecy_v.dropna()
+            ecy = pd.DataFrame({"date": ecy_v.index, "value": ecy_v.round(3).values})
         except Exception:
-            ecy = pd.DataFrame()
+            pass
 
     return {"tips": tips, "cape": cape, "ecy": ecy}
 
 
 def get_macro_value_at(df: pd.DataFrame, target_date) -> float | None:
-    """특정 날짜의 지표값 (없으면 가장 최근 이전값)"""
-    if df is None or df.empty:
-        return None
+    if df is None or df.empty: return None
     try:
         target_date = pd.to_datetime(target_date)
         past = df[df["date"] <= target_date]
-        if past.empty:
-            return None
-        return float(past.iloc[-1]["value"])
+        return float(past.iloc[-1]["value"]) if not past.empty else None
     except Exception:
         return None
 
 
-def compute_macro_ma(df: pd.DataFrame, window_days: int) -> pd.DataFrame:
-    """이동평균 계산 (일간 데이터 기준)"""
-    if df is None or df.empty:
-        return pd.DataFrame()
-    try:
-        df = df.copy().sort_values("date")
-        df["ma"] = df["value"].rolling(window=window_days, min_periods=1).mean()
-        return df
-    except Exception:
-        return df
-
-
-def build_macro_filter_series(
-    macro_data: dict,
-    tips_cfg:  dict | None = None,
-    cape_cfg:  dict | None = None,
-    ecy_cfg:   dict | None = None,
-) -> pd.Series:
-    """
-    날짜별 매매 허용 여부 시리즈 생성.
-    각 cfg: {
-        "enabled": bool,
-        "mode": "value" | "ma_cross",  # value: 절대값 비교, ma_cross: 이평선 크로스
-        "operator": ">" | "<",
-        "threshold": float,             # value 모드
-        "ma_period": int,               # ma_cross 모드
-        "ma_operator": ">" | "<",       # ma_cross: value > MA면 허용
-    }
-    Returns: pd.Series(index=date, value=True/False)
-              True = 매매 허용, False = 매매 금지
-    """
-    # 전체 날짜 범위
+def build_macro_filter_series(macro_data, tips_cfg=None, cape_cfg=None, ecy_cfg=None):
     all_dates = set()
     for key in ["tips", "cape", "ecy"]:
         df = macro_data.get(key)
-        if df is not None and not df.empty:
+        if df is not None and not df.empty and "date" in df.columns:
             all_dates.update(df["date"].dt.date.tolist())
 
     if not all_dates:
@@ -278,34 +161,26 @@ def build_macro_filter_series(
     date_range = pd.date_range(min(all_dates), max(all_dates), freq="D")
     result = pd.Series(True, index=date_range)
 
-    def _apply_filter(df, cfg):
-        if df is None or df.empty or not cfg.get("enabled"): return
-        df = df.copy().sort_values("date")
-        df = df.set_index("date").reindex(date_range).ffill()
-
+    def _apply(df, cfg):
+        if df is None or df.empty or not cfg or not cfg.get("enabled"):
+            return
+        if "date" not in df.columns:
+            return
+        s = df.set_index("date")["value"].reindex(date_range).ffill()
         mode = cfg.get("mode", "value")
         op   = cfg.get("operator", ">")
-
         if mode == "value":
             thr = cfg.get("threshold", 0.0)
-            if op == ">":
-                mask = df["value"] > thr
-            else:
-                mask = df["value"] < thr
-            result[mask == False] = False
-
-        elif mode == "ma_cross":
+            mask = (s > thr) if op == ">" else (s < thr)
+        else:
             ma_p = cfg.get("ma_period", 12)
             ma_op = cfg.get("ma_operator", ">")
-            df["ma"] = df["value"].rolling(window=ma_p, min_periods=1).mean()
-            if ma_op == ">":
-                mask = df["value"] > df["ma"]
-            else:
-                mask = df["value"] < df["ma"]
-            result[mask == False] = False
+            ma = s.rolling(window=ma_p, min_periods=1).mean()
+            mask = (s > ma) if ma_op == ">" else (s < ma)
+        result[~mask.fillna(False)] = False
 
-    _apply_filter(macro_data.get("tips"), tips_cfg)
-    _apply_filter(macro_data.get("cape"), cape_cfg)
-    _apply_filter(macro_data.get("ecy"),  ecy_cfg)
+    _apply(macro_data.get("tips"), tips_cfg)
+    _apply(macro_data.get("cape"), cape_cfg)
+    _apply(macro_data.get("ecy"),  ecy_cfg)
 
     return result
