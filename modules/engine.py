@@ -71,6 +71,18 @@ class StrategyParams:
     dc_buy_mode: str         = "상단 돌파"   # "상단 돌파" | "하단 이탈"
     dc_sell_mode: str        = "하단 이탈"   # "하단 이탈" | "상단 이탈" | "OFF"
 
+    # ── 스윙 하이/로우 ────────────────────────────────────
+    use_swing: bool          = False
+    swing_n: int             = 5     # 앞뒤 N봉보다 높으면 스윙 하이로 인정
+    swing_buy_mode: str      = "저항 돌파"  # "저항 돌파" | "지지 반등"
+    swing_sell_mode: str     = "지지 이탈"  # "지지 이탈" | "저항 도달" | "OFF"
+
+    # ── 볼륨 프로파일 ─────────────────────────────────────
+    use_vp: bool             = False
+    vp_period: int           = 60    # 롤링 기간 (봉)
+    vp_buy_mode: str         = "POC 상향 돌파"   # "POC 상향 돌파" | "VAL 지지 반등" | "VAH 돌파"
+    vp_sell_mode: str        = "POC 하향 이탈"   # "POC 하향 이탈" | "VAL 이탈" | "OFF"
+
     # ── 볼린저 밴드 ───────────────────────────────────────
     use_bollinger: bool   = False
     bb_period: int        = 20
@@ -179,8 +191,13 @@ def prepare_data(
     sig_sub = sig_df.rename(columns=sig_rename)
     trd_sub = trd_df.rename(columns=trd_rename)
 
+    # Volume 컬럼 포함해서 merge
+    sig_cols = ["Date", "Close_sig", "Open_sig", "High_sig", "Low_sig"]
+    if "Volume_sig" in sig_sub.columns:
+        sig_cols.append("Volume_sig")
+
     base = pd.merge(
-        sig_sub[["Date", "Close_sig", "Open_sig", "High_sig", "Low_sig"]],
+        sig_sub[sig_cols],
         trd_sub,
         on="Date",
         how="inner",
@@ -193,6 +210,7 @@ def prepare_data(
     sig_close = base["Close_sig"].to_numpy(dtype=float)
     sig_high  = base["High_sig"].to_numpy(dtype=float)
     sig_low   = base["Low_sig"].to_numpy(dtype=float)
+    sig_vol   = base["Volume_sig"].to_numpy(dtype=float) if "Volume_sig" in base.columns else None
 
     trd_close = base["Close_trd"].to_numpy(dtype=float)
     trd_high  = base["High_trd"].to_numpy(dtype=float)
@@ -222,6 +240,9 @@ def prepare_data(
         mom_period=params.momentum_period,
         dc_period_entry=params.dc_period_entry,
         dc_period_exit=params.dc_period_exit,
+        swing_n=params.swing_n,
+        volume=sig_vol,
+        vp_period=params.vp_period,
     )
 
     # 매매 티커 ATR (손절 계산용)
@@ -343,6 +364,11 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
     dc_mid      = sig_ind["dc_mid"]
     dc_exit_upper = sig_ind["dc_exit_upper"]
     dc_exit_lower = sig_ind["dc_exit_lower"]
+    swing_res     = sig_ind["swing_resistance"]
+    swing_sup     = sig_ind["swing_support"]
+    vp_poc        = sig_ind["vp_poc"]
+    vp_vah        = sig_ind["vp_vah"]
+    vp_val        = sig_ind["vp_val"]
 
     # ── 상태 변수 ─────────────────────────────────────────
     cash        = p.initial_cash
@@ -443,6 +469,74 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 if not np.isnan(dc_eu_prev) and not np.isnan(cl_s):
                     sell_cond = cl_s > dc_eu_prev
                     sell_msg  = f"종가({cl_s:.2f}) > DC상단({dc_eu_prev:.2f})[{p.dc_period_exit}일]"
+
+        # ── 스윙 하이/로우 모드 ───────────────────────
+        elif p.use_swing:
+            sw_res_val = swing_res[cl_b_idx]
+            sw_sup_val = swing_sup[cl_b_idx]
+            sw_res_s   = swing_res[cl_s_idx]
+            sw_sup_s   = swing_sup[cl_s_idx]
+
+            # ── 매수 조건 ──
+            if p.swing_buy_mode == "저항 돌파":
+                if not np.isnan(sw_res_val) and not np.isnan(cl_b):
+                    buy_cond = cl_b > sw_res_val
+                    buy_msg  = f"종가({cl_b:.2f}) > 스윙저항({sw_res_val:.2f})"
+            else:  # 지지 반등
+                if not np.isnan(sw_sup_val) and not np.isnan(cl_b):
+                    # 전일 종가가 지지선 근처(±1%)에서 반등
+                    near_sup = abs(cl_b - sw_sup_val) / sw_sup_val <= 0.01
+                    buy_cond = near_sup and cl_b >= sw_sup_val
+                    buy_msg  = f"종가({cl_b:.2f}) ≈ 스윙지지({sw_sup_val:.2f})"
+
+            # ── 매도 조건 ──
+            if p.swing_sell_mode == "OFF":
+                sell_cond = False
+                sell_msg  = "OFF"
+            elif p.swing_sell_mode == "지지 이탈":
+                if not np.isnan(sw_sup_s) and not np.isnan(cl_s):
+                    sell_cond = cl_s < sw_sup_s
+                    sell_msg  = f"종가({cl_s:.2f}) < 스윙지지({sw_sup_s:.2f})"
+            else:  # 저항 도달
+                if not np.isnan(sw_res_s) and not np.isnan(cl_s):
+                    sell_cond = cl_s >= sw_res_s
+                    sell_msg  = f"종가({cl_s:.2f}) >= 스윙저항({sw_res_s:.2f})"
+
+        # ── 볼륨 프로파일 모드 ────────────────────────
+        elif p.use_vp:
+            vp_poc_b = vp_poc[cl_b_idx]
+            vp_vah_b = vp_vah[cl_b_idx]
+            vp_val_b = vp_val[cl_b_idx]
+            vp_poc_s = vp_poc[cl_s_idx]
+            vp_val_s = vp_val[cl_s_idx]
+
+            # ── 매수 조건 ──
+            if p.vp_buy_mode == "POC 상향 돌파":
+                if not np.isnan(vp_poc_b) and not np.isnan(cl_b):
+                    buy_cond = cl_b > vp_poc_b
+                    buy_msg  = f"종가({cl_b:.2f}) > VP-POC({vp_poc_b:.2f})"
+            elif p.vp_buy_mode == "VAL 지지 반등":
+                if not np.isnan(vp_val_b) and not np.isnan(cl_b):
+                    near_val = abs(cl_b - vp_val_b) / vp_val_b <= 0.01
+                    buy_cond = near_val and cl_b >= vp_val_b
+                    buy_msg  = f"종가({cl_b:.2f}) ≈ VP-VAL({vp_val_b:.2f})"
+            else:  # VAH 돌파
+                if not np.isnan(vp_vah_b) and not np.isnan(cl_b):
+                    buy_cond = cl_b > vp_vah_b
+                    buy_msg  = f"종가({cl_b:.2f}) > VP-VAH({vp_vah_b:.2f})"
+
+            # ── 매도 조건 ──
+            if p.vp_sell_mode == "OFF":
+                sell_cond = False
+                sell_msg  = "OFF"
+            elif p.vp_sell_mode == "POC 하향 이탈":
+                if not np.isnan(vp_poc_s) and not np.isnan(cl_s):
+                    sell_cond = cl_s < vp_poc_s
+                    sell_msg  = f"종가({cl_s:.2f}) < VP-POC({vp_poc_s:.2f})"
+            else:  # VAL 이탈
+                if not np.isnan(vp_val_s) and not np.isnan(cl_s):
+                    sell_cond = cl_s < vp_val_s
+                    sell_msg  = f"종가({cl_s:.2f}) < VP-VAL({vp_val_s:.2f})"
 
         # ── 볼린저 밴드 모드 ──────────────────────────
         elif p.use_bollinger:
@@ -688,6 +782,11 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         "dc_mid":      dc_mid[WARMUP:] if p.use_donchian else None,
         "dc_exit_upper": dc_exit_upper[WARMUP:] if p.use_donchian else None,
         "dc_exit_lower": dc_exit_lower[WARMUP:] if p.use_donchian else None,
+        "swing_res":   swing_res[WARMUP:] if p.use_swing else None,
+        "swing_sup":   swing_sup[WARMUP:] if p.use_swing else None,
+        "vp_poc":      vp_poc[WARMUP:] if p.use_vp else None,
+        "vp_vah":      vp_vah[WARMUP:] if p.use_vp else None,
+        "vp_val":      vp_val[WARMUP:] if p.use_vp else None,
     }
 
     return BacktestResult(
