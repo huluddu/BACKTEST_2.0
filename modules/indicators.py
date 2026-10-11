@@ -251,7 +251,37 @@ def rate_of_change(x: np.ndarray, period: int = 10) -> np.ndarray:
 
 
 # ══════════════════════════════════════════════════════════
-# 8. 통합 지표 계산 함수 (engine에서 한 번에 호출)
+# 8. 도니챈 채널 (Donchian Channel)
+# ══════════════════════════════════════════════════════════
+
+def donchian(high: np.ndarray, low: np.ndarray, period: int) -> tuple:
+    """
+    도니챈 채널 계산
+    Returns: (upper, lower, mid)
+      upper[i] = 최근 period봉 중 최고가
+      lower[i] = 최근 period봉 중 최저가
+      mid[i]   = (upper + lower) / 2
+
+    ※ 돌파 판단 시 반드시 i-1 기준값(전일) 사용 → 미래 참조 방지
+    """
+    n = len(high)
+    upper = np.full(n, np.nan, dtype=float)
+    lower = np.full(n, np.nan, dtype=float)
+
+    for i in range(period - 1, n):
+        upper[i] = np.max(high[i - period + 1: i + 1])
+        lower[i] = np.min(low[i - period + 1: i + 1])
+
+    mid = np.where(
+        ~np.isnan(upper) & ~np.isnan(lower),
+        (upper + lower) / 2.0,
+        np.nan,
+    )
+    return upper, lower, mid
+
+
+# ══════════════════════════════════════════════════════════
+# 9. 통합 지표 계산 함수 (engine에서 한 번에 호출)
 # ══════════════════════════════════════════════════════════
 
 def compute_all(
@@ -269,6 +299,8 @@ def compute_all(
     stoch_k: int = 14,
     stoch_d: int = 3,
     mom_period: int = 10,
+    dc_period_entry: int = 20,
+    dc_period_exit: int = 10,
 ) -> dict:
     """
     엔진에서 필요한 모든 지표를 한 번에 계산해서 dict로 반환.
@@ -289,6 +321,11 @@ def compute_all(
             "stoch_d": ndarray,
             "momentum": ndarray,
             "roc": ndarray,
+            "dc_upper": ndarray,    # 도니챈 진입 채널 상단 (dc_period_entry)
+            "dc_lower": ndarray,    # 도니챈 진입 채널 하단
+            "dc_mid":   ndarray,    # 도니챈 진입 채널 중간
+            "dc_exit_upper": ndarray,  # 도니챈 청산 채널 상단 (dc_period_exit)
+            "dc_exit_lower": ndarray,  # 도니챈 청산 채널 하단 (지지선 손절용)
         }
     """
     result = {}
@@ -324,6 +361,16 @@ def compute_all(
     # 모멘텀
     result["momentum"] = momentum(close, mom_period)
     result["roc"] = rate_of_change(close, mom_period)
+
+    # 도니챈 채널
+    dc_u, dc_l, dc_m = donchian(high, low, dc_period_entry)
+    result["dc_upper"] = dc_u
+    result["dc_lower"] = dc_l
+    result["dc_mid"]   = dc_m
+
+    dce_u, dce_l, _ = donchian(high, low, dc_period_exit)
+    result["dc_exit_upper"] = dce_u
+    result["dc_exit_lower"] = dce_l
 
     return result
 

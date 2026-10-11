@@ -64,6 +64,13 @@ class StrategyParams:
     offset_trend_short: int = 1
     offset_trend_long: int  = 1
 
+    # ── 도니챈 채널 ──────────────────────────────────────
+    use_donchian: bool       = False
+    dc_period_entry: int     = 20   # 진입 채널 기간 (상단 돌파 = 매수)
+    dc_period_exit: int      = 10   # 청산 채널 기간 (하단 이탈 = 손절/매도)
+    dc_buy_mode: str         = "상단 돌파"   # "상단 돌파" | "하단 이탈"
+    dc_sell_mode: str        = "하단 이탈"   # "하단 이탈" | "상단 이탈" | "OFF"
+
     # ── 볼린저 밴드 ───────────────────────────────────────
     use_bollinger: bool   = False
     bb_period: int        = 20
@@ -213,6 +220,8 @@ def prepare_data(
         bb_period=params.bb_period,
         bb_std=params.bb_std,
         mom_period=params.momentum_period,
+        dc_period_entry=params.dc_period_entry,
+        dc_period_exit=params.dc_period_exit,
     )
 
     # 매매 티커 ATR (손절 계산용)
@@ -329,6 +338,11 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
     bb_up       = sig_ind["bb_upper"]
     bb_lo       = sig_ind["bb_lower"]
     roc_arr     = sig_ind["roc"]
+    dc_upper    = sig_ind["dc_upper"]
+    dc_lower    = sig_ind["dc_lower"]
+    dc_mid      = sig_ind["dc_mid"]
+    dc_exit_upper = sig_ind["dc_exit_upper"]
+    dc_exit_lower = sig_ind["dc_exit_lower"]
 
     # ── 상태 변수 ─────────────────────────────────────────
     cash        = p.initial_cash
@@ -395,8 +409,39 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         buy_msg   = ""
         sell_msg  = ""
 
+        # ── 도니챈 채널 모드 ─────────────────────────
+        if p.use_donchian:
+            # 전일 기준 도니챈 값 (미래 참조 방지)
+            dc_u_prev  = dc_upper[cl_b_idx]
+            dc_l_prev  = dc_lower[cl_b_idx]
+            dc_eu_prev = dc_exit_upper[cl_s_idx]
+            dc_el_prev = dc_exit_lower[cl_s_idx]
+
+            # ── 매수 조건 ──
+            if p.dc_buy_mode == "상단 돌파":
+                if not np.isnan(dc_u_prev) and not np.isnan(cl_b):
+                    buy_cond = cl_b > dc_u_prev
+                    buy_msg  = f"종가({cl_b:.2f}) > DC상단({dc_u_prev:.2f})[{p.dc_period_entry}일]"
+            else:  # 하단 이탈 (역추세 반등)
+                if not np.isnan(dc_l_prev) and not np.isnan(cl_b):
+                    buy_cond = cl_b < dc_l_prev
+                    buy_msg  = f"종가({cl_b:.2f}) < DC하단({dc_l_prev:.2f})[{p.dc_period_entry}일]"
+
+            # ── 매도 조건 ──
+            if p.dc_sell_mode == "OFF":
+                sell_cond = False
+                sell_msg  = "OFF"
+            elif p.dc_sell_mode == "하단 이탈":
+                if not np.isnan(dc_el_prev) and not np.isnan(cl_s):
+                    sell_cond = cl_s < dc_el_prev
+                    sell_msg  = f"종가({cl_s:.2f}) < DC하단({dc_el_prev:.2f})[{p.dc_period_exit}일]"
+            else:  # 상단 이탈
+                if not np.isnan(dc_eu_prev) and not np.isnan(cl_s):
+                    sell_cond = cl_s > dc_eu_prev
+                    sell_msg  = f"종가({cl_s:.2f}) > DC상단({dc_eu_prev:.2f})[{p.dc_period_exit}일]"
+
         # ── 볼린저 밴드 모드 ──────────────────────────
-        if p.use_bollinger:
+        elif p.use_bollinger:
             bb_u_val = bb_up[cl_b_idx] if not np.isnan(bb_up[cl_b_idx]) else np.nan
             bb_m_val = bb_mid[cl_b_idx] if not np.isnan(bb_mid[cl_b_idx]) else np.nan
             bb_l_val = bb_lo[cl_b_idx] if not np.isnan(bb_lo[cl_b_idx]) else np.nan
@@ -634,6 +679,11 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
         "macd_signal": macd_sig[WARMUP:] if p.use_macd else None,
         "macd_hist":   macd_hist[WARMUP:] if p.use_macd else None,
         "rsi":         rsi_arr[WARMUP:] if p.use_rsi_filter else None,
+        "dc_upper":    dc_upper[WARMUP:] if p.use_donchian else None,
+        "dc_lower":    dc_lower[WARMUP:] if p.use_donchian else None,
+        "dc_mid":      dc_mid[WARMUP:] if p.use_donchian else None,
+        "dc_exit_upper": dc_exit_upper[WARMUP:] if p.use_donchian else None,
+        "dc_exit_lower": dc_exit_lower[WARMUP:] if p.use_donchian else None,
     }
 
     return BacktestResult(
