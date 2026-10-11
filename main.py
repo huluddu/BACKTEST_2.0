@@ -421,6 +421,41 @@ with st.sidebar:
         st.session_state["_rsi_period"] = rsi_period
         st.session_state["_rsi_range"]  = (rsi_min, rsi_max)
 
+    with st.expander("📊 볼린저 밴드"):
+        use_bb = st.toggle(
+            "볼린저 밴드 사용",
+            value=bool(st.session_state["_use_bb"]), key="use_bb")
+        if use_bb:
+            col1, col2 = st.columns(2)
+            with col1:
+                bb_period = st.number_input(
+                    "볼린저 기간", min_value=5, max_value=200,
+                    value=int(st.session_state["_bb_period"]), step=1, key="bb_period")
+            with col2:
+                bb_std = st.number_input(
+                    "표준편차 배수", min_value=0.5, max_value=5.0,
+                    value=float(st.session_state["_bb_std"]), step=0.1, key="bb_std")
+            _bb_entry_list = ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"]
+            _bb_exit_list  = ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"]
+            bb_entry = st.selectbox(
+                "매수 조건", _bb_entry_list,
+                index=_bb_entry_list.index(st.session_state["_bb_entry"])
+                      if st.session_state["_bb_entry"] in _bb_entry_list else 0,
+                key="bb_entry")
+            bb_exit = st.selectbox(
+                "매도(청산) 조건", _bb_exit_list,
+                index=_bb_exit_list.index(st.session_state["_bb_exit"])
+                      if st.session_state["_bb_exit"] in _bb_exit_list else 0,
+                key="bb_exit")
+        else:
+            bb_period, bb_std = 20, 2.0
+            bb_entry, bb_exit = "상단선 돌파 (추세)", "중심선(MA) 이탈"
+        st.session_state["_use_bb"]    = use_bb
+        st.session_state["_bb_period"] = bb_period
+        st.session_state["_bb_std"]    = bb_std
+        st.session_state["_bb_entry"]  = bb_entry
+        st.session_state["_bb_exit"]   = bb_exit
+
     with st.expander("📦 도니챈 채널"):
         use_dc = st.toggle(
             "도니챈 채널 사용",
@@ -716,6 +751,11 @@ def _collect_params() -> StrategyParams:
         rsi_period         = rsi_period,
         rsi_min            = rsi_min,
         rsi_max            = rsi_max,
+        use_bollinger      = use_bb,
+        bb_period          = bb_period,
+        bb_std             = bb_std,
+        bb_entry_type      = bb_entry,
+        bb_exit_type       = bb_exit,
         use_donchian       = use_dc,
         dc_period_entry    = dc_entry,
         dc_period_exit     = dc_exit,
