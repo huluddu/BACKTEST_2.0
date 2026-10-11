@@ -411,11 +411,15 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
 
         # ── 도니챈 채널 모드 ─────────────────────────
         if p.use_donchian:
-            # 전일 기준 도니챈 값 (미래 참조 방지)
-            dc_u_prev  = dc_upper[cl_b_idx]
-            dc_l_prev  = dc_lower[cl_b_idx]
-            dc_eu_prev = dc_exit_upper[cl_s_idx]
-            dc_el_prev = dc_exit_lower[cl_s_idx]
+            # 도니챈 기준 인덱스: 전일 종가(cl_b_idx)와 비교할 채널은
+            # 전일 이전까지의 N일 최고/저가여야 함 (cl_b_idx-1 = 전전일 기준)
+            # → 전일 종가가 전전일까지의 N일 고점을 돌파했는지 확인
+            dc_ref_b   = max(0, cl_b_idx - 1)
+            dc_ref_s   = max(0, cl_s_idx - 1)
+            dc_u_prev  = dc_upper[dc_ref_b]
+            dc_l_prev  = dc_lower[dc_ref_b]
+            dc_eu_prev = dc_exit_upper[dc_ref_s]
+            dc_el_prev = dc_exit_lower[dc_ref_s]
 
             # ── 매수 조건 ──
             if p.dc_buy_mode == "상단 돌파":
