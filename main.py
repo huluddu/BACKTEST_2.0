@@ -100,6 +100,16 @@ init_session_state({
     "_dc_exit":       10,
     "_dc_buy_mode":   "상단 돌파",
     "_dc_sell_mode":  "하단 이탈",
+    # 스윙 하이/로우
+    "_use_swing":      False,
+    "_swing_n":        5,
+    "_swing_buy_mode": "저항 돌파",
+    "_swing_sell_mode":"지지 이탈",
+    # 볼륨 프로파일
+    "_use_vp":         False,
+    "_vp_period":      60,
+    "_vp_buy_mode":    "POC 상향 돌파",
+    "_vp_sell_mode":   "POC 하향 이탈",
     "_apply_pending": False,
     "_ticker_pending": False,
     "_sig_ticker":    "SOXL",
@@ -450,6 +460,70 @@ with st.sidebar:
         st.session_state["_dc_buy_mode"]  = dc_buy_mode
         st.session_state["_dc_sell_mode"] = dc_sell_mode
 
+    with st.expander("📈 스윙 하이/로우"):
+        use_swing = st.toggle(
+            "스윙 하이/로우 사용",
+            value=bool(st.session_state["_use_swing"]), key="use_swing")
+        if use_swing:
+            swing_n = st.slider(
+                "스윙 탐지 봉수 (N봉 앞뒤 비교)", 2, 20,
+                int(st.session_state["_swing_n"]), step=1, key="swing_n")
+            _sw_buy_list  = ["저항 돌파", "지지 반등"]
+            _sw_sell_list = ["지지 이탈", "저항 도달", "OFF"]
+            swing_buy_mode = st.radio(
+                "매수 조건", _sw_buy_list,
+                index=_sw_buy_list.index(st.session_state["_swing_buy_mode"])
+                      if st.session_state["_swing_buy_mode"] in _sw_buy_list else 0,
+                horizontal=True, key="swing_buy_mode")
+            swing_sell_mode = st.radio(
+                "매도(청산) 조건", _sw_sell_list,
+                index=_sw_sell_list.index(st.session_state["_swing_sell_mode"])
+                      if st.session_state["_swing_sell_mode"] in _sw_sell_list else 0,
+                horizontal=True, key="swing_sell_mode")
+            st.caption(
+                "📈 스윙 고점/저점: N봉 앞뒤로 가장 높은/낮은 봉을 저항/지지로 인식합니다.\n"
+                "N이 클수록 더 강한 스윙 포인트만 탐지합니다."
+            )
+        else:
+            swing_n = 5
+            swing_buy_mode, swing_sell_mode = "저항 돌파", "지지 이탈"
+        st.session_state["_use_swing"]       = use_swing
+        st.session_state["_swing_n"]         = swing_n
+        st.session_state["_swing_buy_mode"]  = swing_buy_mode
+        st.session_state["_swing_sell_mode"] = swing_sell_mode
+
+    with st.expander("📊 볼륨 프로파일"):
+        use_vp = st.toggle(
+            "볼륨 프로파일 사용",
+            value=bool(st.session_state["_use_vp"]), key="use_vp")
+        if use_vp:
+            vp_period = st.slider(
+                "롤링 기간 (일)", 20, 250,
+                int(st.session_state["_vp_period"]), step=5, key="vp_period")
+            _vp_buy_list  = ["POC 상향 돌파", "VAL 지지 반등", "VAH 돌파"]
+            _vp_sell_list = ["POC 하향 이탈", "VAL 이탈", "OFF"]
+            vp_buy_mode = st.radio(
+                "매수 조건", _vp_buy_list,
+                index=_vp_buy_list.index(st.session_state["_vp_buy_mode"])
+                      if st.session_state["_vp_buy_mode"] in _vp_buy_list else 0,
+                horizontal=True, key="vp_buy_mode")
+            vp_sell_mode = st.radio(
+                "매도(청산) 조건", _vp_sell_list,
+                index=_vp_sell_list.index(st.session_state["_vp_sell_mode"])
+                      if st.session_state["_vp_sell_mode"] in _vp_sell_list else 0,
+                horizontal=True, key="vp_sell_mode")
+            st.caption(
+                "📊 볼륨 프로파일: 최근 N일 동안 가격대별 거래량을 계산합니다.\n"
+                "POC(최대 거래량 가격), VAH/VAL(거래량 70% 구간 상단/하단)"
+            )
+        else:
+            vp_period = 60
+            vp_buy_mode, vp_sell_mode = "POC 상향 돌파", "POC 하향 이탈"
+        st.session_state["_use_vp"]        = use_vp
+        st.session_state["_vp_period"]     = vp_period
+        st.session_state["_vp_buy_mode"]   = vp_buy_mode
+        st.session_state["_vp_sell_mode"]  = vp_sell_mode
+
     with st.expander("🌍 시장 필터"):
         use_mkt = st.toggle(
             "시장 필터 사용",
@@ -647,6 +721,14 @@ def _collect_params() -> StrategyParams:
         dc_period_exit     = dc_exit,
         dc_buy_mode        = dc_buy_mode,
         dc_sell_mode       = dc_sell_mode,
+        use_swing          = use_swing,
+        swing_n            = swing_n,
+        swing_buy_mode     = swing_buy_mode,
+        swing_sell_mode    = swing_sell_mode,
+        use_vp             = use_vp,
+        vp_period          = vp_period,
+        vp_buy_mode        = vp_buy_mode,
+        vp_sell_mode       = vp_sell_mode,
         use_market_filter  = use_mkt,
         market_ma_period   = mkt_ma_p,
         use_atr_stop       = use_atr_stop,
@@ -758,6 +840,44 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
                 name=f"DC청산상단({p.dc_period_exit}일)",
                 line=dict(color="rgba(255,80,80,0.7)", width=1, dash="dot"),
             ), row=1, col=1)
+
+    # ── 스윙 하이/로우 레벨 ─────────────────────────
+    if p.use_swing and chart_data.get("swing_res") is not None:
+        sw_res = chart_data["swing_res"]
+        sw_sup = chart_data["swing_sup"]
+        fig.add_trace(go.Scatter(
+            x=dates, y=sw_res,
+            name="스윙저항",
+            line=dict(color="rgba(255,80,80,0.75)", width=1.2, dash="dot"),
+            connectgaps=False,
+        ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=dates, y=sw_sup,
+            name="스윙지지",
+            line=dict(color="rgba(80,200,120,0.75)", width=1.2, dash="dot"),
+            connectgaps=False,
+        ), row=1, col=1)
+
+    # ── 볼륨 프로파일 레벨 ──────────────────────────
+    if p.use_vp and chart_data.get("vp_poc") is not None:
+        fig.add_trace(go.Scatter(
+            x=dates, y=chart_data["vp_poc"],
+            name="VP-POC",
+            line=dict(color="rgba(255,215,0,0.9)", width=2),
+            connectgaps=False,
+        ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=dates, y=chart_data["vp_vah"],
+            name="VP-VAH",
+            line=dict(color="rgba(255,160,80,0.75)", width=1.2, dash="dash"),
+            connectgaps=False,
+        ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=dates, y=chart_data["vp_val"],
+            name="VP-VAL",
+            line=dict(color="rgba(100,180,255,0.75)", width=1.2, dash="dash"),
+            connectgaps=False,
+        ), row=1, col=1)
 
     # ── 매매 시그널 마커 ─────────────────────────────
     buys         = [l for l in trade_log if l["신호"] == "BUY"]
