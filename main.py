@@ -94,6 +94,12 @@ init_session_state({
     "_macd_mode":     "히스토그램 양전환",
     "_use_mkt":       False,
     "_mkt_ma_p":      200,
+    # 도니챈 채널
+    "_use_dc":        False,
+    "_dc_entry":      20,
+    "_dc_exit":       10,
+    "_dc_buy_mode":   "상단 돌파",
+    "_dc_sell_mode":  "하단 이탈",
     "_apply_pending": False,
     "_ticker_pending": False,
     "_sig_ticker":    "SOXL",
@@ -405,6 +411,45 @@ with st.sidebar:
         st.session_state["_rsi_period"] = rsi_period
         st.session_state["_rsi_range"]  = (rsi_min, rsi_max)
 
+    with st.expander("📦 도니챈 채널"):
+        use_dc = st.toggle(
+            "도니챈 채널 사용",
+            value=bool(st.session_state["_use_dc"]), key="use_dc")
+        if use_dc:
+            col1, col2 = st.columns(2)
+            with col1:
+                dc_entry = st.number_input(
+                    "진입 기간 (N일 고가/저가)", min_value=5, max_value=200,
+                    value=int(st.session_state["_dc_entry"]), step=1, key="dc_entry")
+            with col2:
+                dc_exit = st.number_input(
+                    "청산 기간 (N일 고가/저가)", min_value=5, max_value=200,
+                    value=int(st.session_state["_dc_exit"]), step=1, key="dc_exit")
+            _dc_buy_list  = ["상단 돌파", "하단 이탈"]
+            _dc_sell_list = ["하단 이탈", "상단 돌파", "OFF"]
+            dc_buy_mode = st.radio(
+                "매수 조건", _dc_buy_list,
+                index=_dc_buy_list.index(st.session_state["_dc_buy_mode"])
+                      if st.session_state["_dc_buy_mode"] in _dc_buy_list else 0,
+                horizontal=True, key="dc_buy_mode")
+            dc_sell_mode = st.radio(
+                "매도(청산) 조건", _dc_sell_list,
+                index=_dc_sell_list.index(st.session_state["_dc_sell_mode"])
+                      if st.session_state["_dc_sell_mode"] in _dc_sell_list else 0,
+                horizontal=True, key="dc_sell_mode")
+            st.caption(
+                "📦 도니챈 채널: 진입 기간 N일 최고가(상단)/최저가(하단)로 박스를 그립니다.\n"
+                "청산 기간은 보통 진입 기간의 절반으로 설정합니다 (터틀 트레이딩 방식)."
+            )
+        else:
+            dc_entry, dc_exit = 20, 10
+            dc_buy_mode, dc_sell_mode = "상단 돌파", "하단 이탈"
+        st.session_state["_use_dc"]       = use_dc
+        st.session_state["_dc_entry"]     = dc_entry
+        st.session_state["_dc_exit"]      = dc_exit
+        st.session_state["_dc_buy_mode"]  = dc_buy_mode
+        st.session_state["_dc_sell_mode"] = dc_sell_mode
+
     with st.expander("🌍 시장 필터"):
         use_mkt = st.toggle(
             "시장 필터 사용",
@@ -597,6 +642,11 @@ def _collect_params() -> StrategyParams:
         rsi_period         = rsi_period,
         rsi_min            = rsi_min,
         rsi_max            = rsi_max,
+        use_donchian       = use_dc,
+        dc_period_entry    = dc_entry,
+        dc_period_exit     = dc_exit,
+        dc_buy_mode        = dc_buy_mode,
+        dc_sell_mode       = dc_sell_mode,
         use_market_filter  = use_mkt,
         market_ma_period   = mkt_ma_p,
         use_atr_stop       = use_atr_stop,
@@ -671,6 +721,42 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
             fig.add_trace(go.Scatter(
                 x=dates, y=chart_data[band],
                 name=name, line=dict(color=color, width=1, dash="dot")
+            ), row=1, col=1)
+
+    # ── 도니챈 채널 ──────────────────────────────────
+    if p.use_donchian and chart_data.get("dc_upper") is not None:
+        # 진입 채널 상단 (매수 기준)
+        fig.add_trace(go.Scatter(
+            x=dates, y=chart_data["dc_upper"],
+            name=f"DC상단({p.dc_period_entry}일)",
+            line=dict(color="rgba(255,165,0,0.85)", width=1.5),
+        ), row=1, col=1)
+        # 진입 채널 하단 + fill (박스 효과)
+        fig.add_trace(go.Scatter(
+            x=dates, y=chart_data["dc_lower"],
+            name=f"DC하단({p.dc_period_entry}일)",
+            line=dict(color="rgba(255,165,0,0.85)", width=1.5),
+            fill="tonexty",
+            fillcolor="rgba(255,165,0,0.06)",
+        ), row=1, col=1)
+        # 중심선 (진입 채널)
+        fig.add_trace(go.Scatter(
+            x=dates, y=chart_data["dc_mid"],
+            name="DC중심",
+            line=dict(color="rgba(255,165,0,0.5)", width=1, dash="dash"),
+        ), row=1, col=1)
+        # 청산 채널 하단 (손절 기준)
+        if chart_data.get("dc_exit_lower") is not None and p.dc_sell_mode != "OFF":
+            fig.add_trace(go.Scatter(
+                x=dates, y=chart_data["dc_exit_lower"],
+                name=f"DC청산하단({p.dc_period_exit}일)",
+                line=dict(color="rgba(255,80,80,0.7)", width=1, dash="dot"),
+            ), row=1, col=1)
+        if chart_data.get("dc_exit_upper") is not None and p.dc_sell_mode == "상단 돌파":
+            fig.add_trace(go.Scatter(
+                x=dates, y=chart_data["dc_exit_upper"],
+                name=f"DC청산상단({p.dc_period_exit}일)",
+                line=dict(color="rgba(255,80,80,0.7)", width=1, dash="dot"),
             ), row=1, col=1)
 
     # ── 매매 시그널 마커 ─────────────────────────────
