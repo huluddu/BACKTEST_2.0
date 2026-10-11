@@ -1440,6 +1440,13 @@ with tab3:
 
         def _show_bt_result(result, data, p_used):
             """백테스트 결과 표시 (공통)"""
+            if result and result.error:
+                st.error(f"❌ 백테스트 실패: {result.error}")
+                return
+            if result and not result.is_valid:
+                st.warning("⚠️ 백테스트 완료 — 조건을 만족한 거래가 0건입니다.\n\n"
+                           "전략 파라미터를 조정하거나 기간을 넓혀보세요.")
+                return
             if result and result.is_valid:
 
                 # 전략 설명
