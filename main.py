@@ -794,6 +794,12 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
     rows = 1
     specs = [[{"type": "xy"}]]
 
+    # 거래량 패널 (항상 row 2)
+    has_volume = "Volume_trd" in base.columns
+    if has_volume:
+        rows += 1
+        specs.append([{"type": "xy"}])
+
     # MACD 패널
     if p.use_macd and chart_data.get("macd_hist") is not None:
         rows += 1
@@ -804,12 +810,19 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
         rows += 1
         specs.append([{"type": "xy"}])
 
+    # 행 높이: 가격 60%, 거래량 15%, 나머지 패널 15%씩
+    vol_rows = 1 if has_volume else 0
+    sub_rows = rows - 1 - vol_rows  # MACD + RSI 개수
+    row_heights = [0.60] + ([0.15] if has_volume else []) + [0.15] * sub_rows
+
     fig = make_subplots(
         rows=rows, cols=1, shared_xaxes=True,
-        vertical_spacing=0.04,
-        row_heights=[0.7] + [0.15] * (rows - 1),
+        vertical_spacing=0.03,
+        row_heights=row_heights,
         specs=specs,
     )
+    vol_row  = 2 if has_volume else None          # 거래량 행 번호
+    sub_row0 = (3 if has_volume else 2)           # MACD/RSI 첫 행 번호
 
     # ── 가격 (캔들) ─────────────────────────────────
     fig.add_trace(go.Candlestick(
@@ -819,6 +832,26 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
         name="가격", increasing_line_color="#26a69a",
         decreasing_line_color="#ef5350",
     ), row=1, col=1)
+
+    # ── 거래량 ──────────────────────────────────────
+    if has_volume and vol_row:
+        vol = base["Volume_trd"].values
+        close_arr = base["Close_trd"].values
+        open_arr  = base["Open_trd"].values
+        vol_colors = [
+            "rgba(38,166,154,0.6)" if c >= o else "rgba(239,83,80,0.6)"
+            for c, o in zip(close_arr, open_arr)
+        ]
+        fig.add_trace(go.Bar(
+            x=dates, y=vol,
+            name="거래량",
+            marker_color=vol_colors,
+            showlegend=False,
+        ), row=vol_row, col=1)
+        fig.update_yaxes(
+            title_text="거래량", row=vol_row, col=1,
+            tickformat=".2s",
+        )
 
     # ── 이평선 ──────────────────────────────────────
     if chart_data.get("ma_buy_arr") is not None:
@@ -966,7 +999,7 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
         ), row=1, col=1)
 
     # ── MACD ────────────────────────────────────────
-    cur_row = 2
+    cur_row = sub_row0
     if p.use_macd and chart_data.get("macd_hist") is not None:
         hist = chart_data["macd_hist"]
         colors = ["#26a69a" if v >= 0 else "#ef5350" for v in hist]
@@ -995,7 +1028,7 @@ def _draw_price_chart(chart_data: dict, trade_log: list, p: StrategyParams) -> g
                           line_width=0.8, row=cur_row, col=1)
 
     fig.update_layout(
-        height=500 + (rows - 1) * 150,
+        height=500 + (vol_rows * 120) + (sub_rows * 150),
         xaxis_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         margin=dict(l=0, r=0, t=30, b=0),
@@ -1190,12 +1223,34 @@ with tab2:
 
                 scan_result = get_state("scan_result")
                 if scan_result is not None and not scan_result.empty:
+                    # 현재수익률 스타일 함수
+                    def _style_scan(df):
+                        styles = pd.DataFrame("", index=df.index, columns=df.columns)
+                        if "오늘신호" in df.columns:
+                            styles["오늘신호"] = df["오늘신호"].map(
+                                lambda v: "color: #26a69a" if "매수" in str(v) else
+                                          "color: #ef5350" if "매도" in str(v) else ""
+                            )
+                        if "현재수익률" in df.columns:
+                            styles["현재수익률"] = df["현재수익률"].map(
+                                lambda v: "color: #26a69a; font-weight:600" if isinstance(v, (int, float)) and v > 0
+                                     else "color: #ef5350; font-weight:600" if isinstance(v, (int, float)) and v < 0
+                                     else ""
+                            )
+                        return styles
+
+                    # column_config: 숫자 % 컬럼 포맷팅
+                    col_cfg = {
+                        "수익률":     st.column_config.NumberColumn("수익률(%)",     format="%.2f%%"),
+                        "B&H":        st.column_config.NumberColumn("B&H(%)",        format="%.2f%%"),
+                        "MDD":        st.column_config.NumberColumn("MDD(%)",        format="%.2f%%"),
+                        "승률":       st.column_config.NumberColumn("승률(%)",       format="%.1f%%"),
+                        "현재수익률": st.column_config.NumberColumn("현재수익률(%)", format="%+.2f%%"),
+                        "PF":         st.column_config.NumberColumn("PF",            format="%.2f"),
+                    }
                     st.dataframe(
-                        scan_result.style.map(
-                            lambda v: "color: #26a69a" if "매수" in str(v) else
-                                      "color: #ef5350" if "매도" in str(v) else "",
-                            subset=["오늘신호"]
-                        ),
+                        scan_result.style.apply(_style_scan, axis=None),
+                        column_config=col_cfg,
                         use_container_width=True, hide_index=True,
                     )
 
