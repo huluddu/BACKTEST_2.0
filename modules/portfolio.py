@@ -138,6 +138,7 @@ def run_portfolio_scan(
             buy_price_disp = "-"
             stop_price_disp = "-"
             tp_price_disp   = "-"
+            cur_pnl_pct     = None   # 보유중 현재 수익률 (숫자)
 
             if result.trade_log:
                 last = result.trade_log[-1]
@@ -147,9 +148,17 @@ def run_portfolio_scan(
                     buy_px      = float(last["체결가"])
                     buy_price_disp = f"${buy_px:,.2f}"
 
+                    # 현재 수익률: 데이터 마지막 종가 기준
+                    try:
+                        trd_df = get_data(p.trade_ticker, start_date, end_date)
+                        if not trd_df.empty:
+                            cur_px = float(trd_df["Close"].iloc[-1])
+                            cur_pnl_pct = round((cur_px - buy_px) / buy_px * 100, 2)
+                    except Exception:
+                        pass
+
                     # 손절가 계산
                     if p.use_atr_stop:
-                        # ATR 근사값: 현재 시점 마지막 ATR 사용
                         trd_atr = data.get("trd_atr")
                         if trd_atr is not None and len(trd_atr) > 0:
                             last_atr = float(trd_atr[~np.isnan(trd_atr)][-1]) if np.any(~np.isnan(trd_atr)) else 0
@@ -170,13 +179,14 @@ def run_portfolio_scan(
                 "티커":       p.trade_ticker,
                 "보유여부":   hold_status,
                 "매수가":     buy_price_disp,
+                "현재수익률": cur_pnl_pct,   # None(미보유) 또는 float
                 "손절가":     stop_price_disp,
                 "익절가":     tp_price_disp,
                 "오늘신호":   today_sig["status"],
-                "수익률(%)":  f"{result.total_return_pct}%",
-                "B&H(%)":     f"{result.bh_return_pct}%",
-                "MDD(%)":     f"{result.mdd_pct}%",
-                "승률(%)":    f"{result.win_rate_pct}%",
+                "수익률":     result.total_return_pct,   # 숫자
+                "B&H":        result.bh_return_pct,      # 숫자
+                "MDD":        result.mdd_pct,            # 숫자 (음수)
+                "승률":       result.win_rate_pct,       # 숫자
                 "PF":         result.profit_factor,
                 "매매횟수":   result.total_trades,
             })
