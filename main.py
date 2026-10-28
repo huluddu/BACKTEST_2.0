@@ -1166,6 +1166,57 @@ with tab1:
                     icon = "✅" if sig["sell_ok"] else "❌"
                     st.markdown(f":{c}[{icon} {sig['sell_msg']}]")
 
+                # ── 필터 상세 패널 ─────────────────────────────
+                filters_used = any([
+                    sig.get("rsi_info"),
+                    sig.get("mkt_info"),
+                    sig.get("trend_info"),
+                ])
+                if filters_used:
+                    st.markdown("#### 🔍 적용 필터 상세")
+                    fcols = st.columns(3)
+                    col_idx = 0
+
+                    # 추세 필터
+                    if sig.get("trend_info"):
+                        ti = sig["trend_info"]
+                        ok = ti["trend_up"]
+                        with fcols[col_idx % 3]:
+                            status_icon = "🟢" if ok else "🔴"
+                            st.metric(
+                                label=f"{status_icon} 추세 필터",
+                                value="상승추세 ✅" if ok else "하락추세 ❌",
+                                delta=f"단기MA{ti['short_ma']}={ti['short_val']}  /  장기MA{ti['long_ma']}={ti['long_val']}",
+                                delta_color="normal" if ok else "inverse",
+                            )
+                        col_idx += 1
+
+                    # RSI 필터
+                    if sig.get("rsi_info"):
+                        ri = sig["rsi_info"]
+                        with fcols[col_idx % 3]:
+                            status_icon = "🟢" if ri["ok"] else "🔴"
+                            st.metric(
+                                label=f"{status_icon} RSI 필터",
+                                value=f"RSI = {ri['value']:.1f}",
+                                delta=ri["msg"].split("(")[1].rstrip(")") if "(" in ri["msg"] else ri["msg"],
+                                delta_color="normal" if ri["ok"] else "inverse",
+                            )
+                        col_idx += 1
+
+                    # 시장 필터
+                    if sig.get("mkt_info"):
+                        mi = sig["mkt_info"]
+                        with fcols[col_idx % 3]:
+                            status_icon = "🟢" if mi["ok"] else "🔴"
+                            st.metric(
+                                label=f"{status_icon} 시장 필터 ({p.market_ticker})",
+                                value=f"{mi['mkt_cl']:.2f}",
+                                delta=f"MA{p.market_ma_period} = {mi['mkt_ma']:.2f}  ({'위' if mi['ok'] else '아래'})",
+                                delta_color="normal" if mi["ok"] else "inverse",
+                            )
+                        col_idx += 1
+
         # 프리셋 전체 시그널 일람
         if presets:
             st.divider()
