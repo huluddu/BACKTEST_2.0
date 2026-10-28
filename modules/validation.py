@@ -209,40 +209,111 @@ def make_sensitivity_configs(p: StrategyParams) -> list:
     """
     현재 파라미터 기준으로 민감도 테스트 범위 자동 생성.
     각 파라미터의 현재값 ± 범위로 후보 생성.
+    활성화된 전략/필터에 해당하는 파라미터만 포함.
     """
-    def _ma_range(center, half=20, step=5):
-        lo = max(1, center - half)
-        hi = min(120, center + half)
+    def _ma_range(center, half=20, step=5, lo_min=1, hi_max=400):
+        lo = max(lo_min, center - half)
+        hi = min(hi_max, center + half)
         return sorted(set(range(lo, hi + 1, step)) | {center})
 
-    def _off_range(center, half=10, step=5):
-        lo = max(1, center - half)
-        hi = min(60, center + half)
+    def _off_range(center, half=3, step=1, lo_min=0, hi_max=20):
+        lo = max(lo_min, center - half)
+        hi = min(hi_max, center + half)
         return sorted(set(range(lo, hi + 1, step)) | {center})
 
-    configs = [
-        {"name": "ma_buy",  "label": "매수 MA",     "values": _ma_range(p.ma_buy)},
-        {"name": "ma_sell", "label": "매도 MA",     "values": _ma_range(p.ma_sell)},
+    def _int_range(center, half, step, lo_min=1, hi_max=9999):
+        lo = max(lo_min, center - half)
+        hi = min(hi_max, center + half)
+        return sorted(set(range(lo, hi + 1, step)) | {center})
+
+    def _float_range(center, half, step, lo_min=0.0, hi_max=9999.0):
+        import numpy as _np
+        vals = list(_np.arange(
+            max(lo_min, round(center - half, 2)),
+            min(hi_max, round(center + half + step * 0.01, 2)),
+            step
+        ))
+        return sorted(set(round(v, 2) for v in vals) | {center})
+
+    configs = []
+
+    # ── 기본 MA / 오프셋 (항상 포함) ──────────────────────────
+    if not (p.use_donchian or p.use_swing or p.use_vp or p.use_bollinger):
+        configs += [
+            {"name": "ma_buy",  "label": "매수 MA 기간",  "values": _ma_range(p.ma_buy)},
+            {"name": "ma_sell", "label": "매도 MA 기간",  "values": _ma_range(p.ma_sell)},
+        ]
+
+    configs += [
         {"name": "offset_cl_buy",  "label": "종가 오프셋 (매수)", "values": _off_range(p.offset_cl_buy)},
         {"name": "offset_cl_sell", "label": "종가 오프셋 (매도)", "values": _off_range(p.offset_cl_sell)},
     ]
 
+    # ── 손절 / 익절 ────────────────────────────────────────────
     if p.stop_loss_pct > 0 and not p.use_atr_stop:
-        sl_vals = sorted(set(range(
-            max(5, int(p.stop_loss_pct) - 10),
-            min(50, int(p.stop_loss_pct) + 15), 5
-        )) | {int(p.stop_loss_pct)})
-        configs.append({"name": "stop_loss_pct", "label": "손절(%)", "values": sl_vals})
+        configs.append({"name": "stop_loss_pct", "label": "손절(%)",
+                         "values": _float_range(p.stop_loss_pct, half=10, step=2, lo_min=2)})
+
+    if p.use_atr_stop:
+        configs.append({"name": "atr_multiplier", "label": "ATR 손절 배수",
+                         "values": _float_range(p.atr_multiplier, half=1.5, step=0.5, lo_min=0.5, hi_max=6.0)})
 
     if p.take_profit_pct > 0:
-        tp_vals = sorted(set(range(
-            max(0, int(p.take_profit_pct) - 15),
-            min(100, int(p.take_profit_pct) + 20), 5
-        )) | {int(p.take_profit_pct)})
-        configs.append({"name": "take_profit_pct", "label": "익절(%)", "values": tp_vals})
+        configs.append({"name": "take_profit_pct", "label": "익절(%)",
+                         "values": _float_range(p.take_profit_pct, half=15, step=5, lo_min=5)})
 
+    # ── 추세 필터 ──────────────────────────────────────────────
     if p.use_trend_buy or p.use_trend_sell:
-        configs.append({"name": "ma_trend_short", "label": "추세 단기 MA", "values": _ma_range(p.ma_trend_short)})
-        configs.append({"name": "ma_trend_long",  "label": "추세 장기 MA", "values": _ma_range(p.ma_trend_long)})
+        configs += [
+            {"name": "ma_trend_short",        "label": "추세 단기 MA",          "values": _ma_range(p.ma_trend_short, half=15, step=5)},
+            {"name": "ma_trend_long",         "label": "추세 장기 MA",          "values": _ma_range(p.ma_trend_long,  half=30, step=10, hi_max=400)},
+            {"name": "offset_trend_short",    "label": "추세 단기 오프셋",      "values": _off_range(p.offset_trend_short)},
+            {"name": "offset_trend_long",     "label": "추세 장기 오프셋",      "values": _off_range(p.offset_trend_long)},
+        ]
+
+    # ── RSI 필터 ───────────────────────────────────────────────
+    if p.use_rsi_filter:
+        configs += [
+            {"name": "rsi_period", "label": "RSI 기간",    "values": _int_range(p.rsi_period, half=7, step=2, lo_min=2, hi_max=50)},
+            {"name": "rsi_min",    "label": "RSI 하한",    "values": _float_range(p.rsi_min, half=15, step=5, lo_min=10, hi_max=50)},
+            {"name": "rsi_max",    "label": "RSI 상한",    "values": _float_range(p.rsi_max, half=15, step=5, lo_min=50, hi_max=90)},
+        ]
+
+    # ── MACD ──────────────────────────────────────────────────
+    if p.use_macd:
+        configs += [
+            {"name": "macd_fast",          "label": "MACD 단기",   "values": _int_range(p.macd_fast,          half=4, step=1, lo_min=2,  hi_max=30)},
+            {"name": "macd_slow",          "label": "MACD 장기",   "values": _int_range(p.macd_slow,          half=8, step=2, lo_min=10, hi_max=60)},
+            {"name": "macd_signal_period", "label": "MACD 시그널", "values": _int_range(p.macd_signal_period, half=4, step=1, lo_min=2,  hi_max=20)},
+        ]
+
+    # ── 볼린저 밴드 ────────────────────────────────────────────
+    if p.use_bollinger:
+        configs += [
+            {"name": "bb_period", "label": "BB 기간",   "values": _int_range(p.bb_period, half=10, step=5, lo_min=5,   hi_max=60)},
+            {"name": "bb_std",    "label": "BB 표준편차","values": _float_range(p.bb_std,  half=0.75, step=0.25, lo_min=1.0, hi_max=3.5)},
+        ]
+
+    # ── 도니챈 채널 ────────────────────────────────────────────
+    if p.use_donchian:
+        configs += [
+            {"name": "dc_period_entry", "label": "도니챈 진입 기간", "values": _int_range(p.dc_period_entry, half=10, step=5, lo_min=5,  hi_max=60)},
+            {"name": "dc_period_exit",  "label": "도니챈 청산 기간", "values": _int_range(p.dc_period_exit,  half=5,  step=2, lo_min=2,  hi_max=30)},
+        ]
+
+    # ── 스윙 하이/로우 ─────────────────────────────────────────
+    if p.use_swing:
+        configs.append({"name": "swing_n", "label": "스윙 N봉",
+                         "values": _int_range(p.swing_n, half=4, step=1, lo_min=1, hi_max=15)})
+
+    # ── 볼륨 프로파일 ──────────────────────────────────────────
+    if p.use_vp:
+        configs.append({"name": "vp_period", "label": "VP 롤링 기간",
+                         "values": _int_range(p.vp_period, half=30, step=10, lo_min=20, hi_max=200)})
+
+    # ── 시장 필터 ──────────────────────────────────────────────
+    if p.use_market_filter:
+        configs.append({"name": "market_ma_period", "label": "시장 필터 MA",
+                         "values": _ma_range(p.market_ma_period, half=50, step=20, hi_max=500)})
 
     return configs
