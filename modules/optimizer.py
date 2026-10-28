@@ -3,8 +3,12 @@ optimizer.py - 2단계 멀티시드 최적화
 1단계: 축소 탐색 공간 × N시드 → 유망 파라미터 범위 추출
 2단계: 좁혀진 공간 × N시드 → 정밀 탐색
 결과 합산 → 중복 제거 → 정렬
+
+WFA 목표 추가:
+  "WFA 구간평균 수익률" — 파라미터를 고정한 채 여러 구간 백테스트 →
+  구간 평균 수익률을 최대화. 단일 구간 과적합 방지.
 """
-import copy, random, numpy as np, pandas as pd, optuna
+import copy, random, datetime, numpy as np, pandas as pd, optuna
 from dataclasses import dataclass
 from .engine import StrategyParams, prepare_data, run_backtest
 
@@ -156,21 +160,113 @@ def _params_from_trial_params(tp, base_params, ss_config=None):
     return p
 
 
+def _wfa_score(
+    signal_ticker, trade_ticker, market_ticker,
+    start_date, end_date,
+    p: StrategyParams,
+    constraints,
+    window_months: int = 12,
+    step_months:   int = 6,
+) -> tuple[float, float]:
+    """
+    경량 WFA: 파라미터를 고정한 채 구간별 백테스트 실행.
+    Returns: (구간 평균 수익률, 구간 수익률 표준편차)
+    유효 구간이 없거나 제약 위반 시 (-999, 999) 반환.
+    """
+    start_dt = pd.to_datetime(start_date)
+    end_dt   = pd.to_datetime(end_date)
+
+    # 구간 생성
+    windows, cur = [], start_dt
+    while True:
+        win_end = cur + pd.DateOffset(months=window_months)
+        if win_end > end_dt:
+            break
+        windows.append((cur.date(), win_end.date()))
+        cur += pd.DateOffset(months=step_months)
+
+    if len(windows) < 2:
+        return -999.0, 999.0
+
+    oos_returns = []
+    for w_start, w_end in windows:
+        try:
+            d = prepare_data(signal_ticker, trade_ticker, market_ticker,
+                             w_start, w_end, p)
+            if d is None or len(d["base"]) < 20:
+                continue
+            res = run_backtest(d, p)
+            if not res.is_valid:
+                continue
+            if res.total_trades < max(1, constraints.min_trades // 2):
+                continue
+            if constraints.max_mdd > 0 and abs(res.mdd_pct or 0) > constraints.max_mdd:
+                continue
+            oos_returns.append(float(res.total_return_pct))
+        except Exception:
+            continue
+
+    if len(oos_returns) < 2:
+        return -999.0, 999.0
+
+    avg = float(np.mean(oos_returns))
+    std = float(np.std(oos_returns))
+    return avg, std
+
+
+# WFA 목표용 target 상수
+WFA_TARGET = "WFA 구간평균 수익률"
+WFA_STABLE_TARGET = "WFA 안정성 (평균↑ + 편차↓)"
+
+
 def _run_single_study(data_full, base_params, ss_config, constraints,
                       n_trials, target, disable_tp, seed, ma_list, off_list,
-                      progress_cb=None, progress_offset=0, progress_total=1):
+                      progress_cb=None, progress_offset=0, progress_total=1,
+                      wfa_window=12, wfa_step=6):
     """단일 시드 × 단일 탐색 공간 최적화"""
-    is_multi = (target == "다중 목적 (수익률↑ + MDD↓)")
-    sampler  = optuna.samplers.TPESampler(seed=seed)
-    if is_multi:
+    is_multi     = (target == "다중 목적 (수익률↑ + MDD↓)")
+    is_wfa       = (target == WFA_TARGET)
+    is_wfa_stab  = (target == WFA_STABLE_TARGET)
+    sampler      = optuna.samplers.TPESampler(seed=seed)
+
+    if is_wfa_stab:
+        # WFA 안정성: 평균 최대화 + 표준편차 최소화 → 다중 목적
+        study = optuna.create_study(directions=["maximize", "minimize"], sampler=sampler)
+    elif is_multi:
         study = optuna.create_study(directions=["maximize", "minimize"], sampler=sampler)
     else:
         study = optuna.create_study(direction="maximize", sampler=sampler)
 
     def objective(trial):
         try:
-            p   = _build_params_from_trial(trial, base_params, ss_config,
-                                           disable_tp, ma_list, off_list)
+            p = _build_params_from_trial(trial, base_params, ss_config,
+                                         disable_tp, ma_list, off_list)
+
+            # ── WFA 목표: 전체 데이터로 구간별 백테스트 ──────────
+            if is_wfa or is_wfa_stab:
+                # 먼저 전체 백테스트로 기본 필터링 (속도 최적화)
+                res_full = run_backtest(data_full, p)
+                if res_full is None or not res_full.is_valid:
+                    raise optuna.TrialPruned()
+                if res_full.total_trades < constraints.min_trades:
+                    raise optuna.TrialPruned()
+
+                avg_ret, std_ret = _wfa_score(
+                    base_params.signal_ticker, base_params.trade_ticker,
+                    base_params.market_ticker,
+                    data_full.get("start_date", "2010-01-01"),
+                    data_full.get("end_date",   "2030-01-01"),
+                    p, constraints,
+                    window_months=wfa_window,
+                    step_months=wfa_step,
+                )
+                if avg_ret <= -999.0:
+                    raise optuna.TrialPruned()
+                if is_wfa_stab:
+                    return avg_ret, std_ret   # 다중 목적: 평균↑, 편차↓
+                return avg_ret                # 단일 목적: 평균↑
+
+            # ── 일반 목표 ─────────────────────────────────────────
             res = run_backtest(data_full, p)
             if res is None or not res.is_valid: raise optuna.TrialPruned()
             if res.total_trades < constraints.min_trades: raise optuna.TrialPruned()
@@ -179,11 +275,11 @@ def _run_single_study(data_full, base_params, ss_config, constraints,
                 raise optuna.TrialPruned()
             ret = float(res.total_return_pct or -999.0)
             mdd = float(abs(res.mdd_pct or 0))
-            if is_multi: return ret, mdd
+            if is_multi:                    return ret, mdd
             elif target == "Profit Factor": return float(min(res.profit_factor or 0, 999.0))
             elif target == "승률 (%)":      return float(res.win_rate_pct or 0)
             elif target == "MDD 최소화":    return -mdd
-            else: return ret
+            else:                           return ret
         except optuna.TrialPruned: raise
         except Exception: raise optuna.TrialPruned()
 
@@ -198,10 +294,12 @@ def _run_single_study(data_full, base_params, ss_config, constraints,
 
 def _collect_rows(study, data_full, base_params, constraints, target, ss_config):
     """study에서 결과 rows 수집"""
-    is_multi = (target == "다중 목적 (수익률↑ + MDD↓)")
-    trials   = study.best_trials if is_multi else [
+    is_multi    = (target == "다중 목적 (수익률↑ + MDD↓)")
+    is_wfa_stab = (target == WFA_STABLE_TARGET)
+    trials      = study.best_trials if (is_multi or is_wfa_stab) else [
         t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
     ]
+    is_wfa = target in (WFA_TARGET, WFA_STABLE_TARGET)
     rows = []
     for t in trials:
         tp  = t.params
@@ -210,7 +308,21 @@ def _collect_rows(study, data_full, base_params, constraints, target, ss_config)
         if not res.is_valid: continue
         if res.total_trades < constraints.min_trades: continue
         if constraints.max_mdd > 0 and abs(res.mdd_pct or 0) > constraints.max_mdd: continue
-        rows.append({
+
+        # WFA 목표일 때 구간 평균/편차 계산
+        wfa_avg, wfa_std = (None, None)
+        if is_wfa:
+            wfa_avg, wfa_std = _wfa_score(
+                base_params.signal_ticker, base_params.trade_ticker,
+                base_params.market_ticker,
+                data_full.get("start_date", "2010-01-01"),
+                data_full.get("end_date",   "2030-01-01"),
+                p, constraints,
+            )
+            if wfa_avg <= -999.0:
+                continue
+
+        row = {
             "수익률(%)": res.total_return_pct, "MDD(%)": res.mdd_pct,
             "승률(%)": res.win_rate_pct, "PF": res.profit_factor,
             "매매횟수": res.total_trades,
@@ -226,7 +338,11 @@ def _collect_rows(study, data_full, base_params, constraints, target, ss_config)
             "stop_loss_pct": tp.get("sl"), "take_profit_pct": tp.get("tp", 0.0),
             "use_rsi": tp.get("use_rsi", False), "rsi_period": tp.get("rsi_period"),
             "rsi_max": tp.get("rsi_max"), "use_macd": tp.get("use_macd", False),
-        })
+        }
+        if is_wfa:
+            row["WFA구간평균(%)"] = round(wfa_avg, 2)
+            row["WFA구간편차(%)"] = round(wfa_std, 2)
+        rows.append(row)
     return rows
 
 
@@ -239,6 +355,7 @@ def run_optimization(
     stage2_trials=100, stage2_seeds=3,
     target="수익률 (%)", disable_tp=False,
     progress_cb=None,
+    wfa_window=12, wfa_step=6,
 ):
     """
     2단계 멀티시드 최적화.
@@ -251,6 +368,10 @@ def run_optimization(
     )
     if data_full is None:
         return pd.DataFrame(), None
+
+    # WFA 스코어에서 날짜 참조용으로 저장
+    data_full["start_date"] = str(start_date)
+    data_full["end_date"]   = str(end_date)
 
     total_trials = stage1_trials * stage1_seeds + stage2_trials * stage2_seeds
     progress_done = [0]
@@ -273,6 +394,7 @@ def run_optimization(
             progress_cb=_prog,
             progress_offset=i * stage1_trials,
             progress_total=total_trials,
+            wfa_window=wfa_window, wfa_step=wfa_step,
         )
         stage1_rows.extend(_collect_rows(study, data_full, base_params, constraints, target, ss_config))
 
@@ -314,6 +436,7 @@ def run_optimization(
             progress_cb=_prog,
             progress_offset=stage1_trials * stage1_seeds + i * stage2_trials,
             progress_total=total_trials,
+            wfa_window=wfa_window, wfa_step=wfa_step,
         )
         stage2_rows.extend(_collect_rows(study, data_full, base_params, constraints, target, ss_config))
 
@@ -329,7 +452,11 @@ def run_optimization(
                 "offset_cl_sell", "offset_ma_sell", "buy_operator", "sell_operator"]
     existing = [c for c in key_cols if c in df.columns]
     df = df.drop_duplicates(subset=existing)
-    df = df.sort_values("수익률(%)", ascending=False).reset_index(drop=True)
+
+    # WFA 목표일 때 구간평균 기준 정렬
+    is_wfa = target in (WFA_TARGET, WFA_STABLE_TARGET)
+    sort_col = "WFA구간평균(%)" if (is_wfa and "WFA구간평균(%)" in df.columns) else "수익률(%)"
+    df = df.sort_values(sort_col, ascending=False).reset_index(drop=True)
 
     # 단계 정보 추가
     n1 = len(pd.DataFrame(stage1_rows).drop_duplicates(subset=existing)) if stage1_rows else 0
