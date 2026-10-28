@@ -2043,7 +2043,13 @@ with tab4:
         col1, col2, col3 = st.columns(3)
         with col1:
             opt_target = st.selectbox("최적화 목표", [
-                "수익률 (%)", "다중 목적 (수익률↑ + MDD↓)", "Profit Factor", "승률 (%)", "MDD 최소화"
+                "수익률 (%)",
+                "다중 목적 (수익률↑ + MDD↓)",
+                "Profit Factor",
+                "승률 (%)",
+                "MDD 최소화",
+                "WFA 구간평균 수익률",
+                "WFA 안정성 (평균↑ + 편차↓)",
             ], key="opt_target")
             min_trades   = st.slider("최소 매매 횟수", 1, 30, 5, key="opt_min_trades")
         with col2:
@@ -2052,6 +2058,23 @@ with tab4:
         with col3:
             st.caption("📅 분석 기간은 좌측 사이드바 설정을 따릅니다.")
             st.caption(f"**{start_date} ~ {end_date}**")
+
+        # WFA 목표일 때 구간 설정 UI
+        _is_wfa_target = opt_target in ("WFA 구간평균 수익률", "WFA 안정성 (평균↑ + 편차↓)")
+        if _is_wfa_target:
+            st.info("⚠️ WFA 목표는 매 trial마다 여러 구간을 백테스트하므로 일반 목표보다 **3~5배 느립니다.** trial 수를 줄이거나 구간 수를 줄이는 것을 권장합니다.")
+            wfa_col1, wfa_col2 = st.columns(2)
+            with wfa_col1:
+                opt_wfa_window = st.slider("WFA 구간 길이 (개월)", 6, 36, 12, step=3, key="opt_wfa_window",
+                                           help="각 구간의 길이. 짧을수록 구간 수가 많아져 더 강건하지만 느려집니다.")
+            with wfa_col2:
+                opt_wfa_step   = st.slider("WFA 슬라이딩 스텝 (개월)", 3, 12, 6, step=3, key="opt_wfa_step",
+                                           help="구간 이동 간격. 작을수록 구간이 많이 겹쳐 더 세밀하게 평가합니다.")
+            total_months = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days // 30
+            approx_windows = max(0, (total_months - opt_wfa_window) // opt_wfa_step + 1)
+            st.caption(f"📊 예상 구간 수: **{approx_windows}개** ({start_date} ~ {end_date}, {total_months}개월)")
+        else:
+            opt_wfa_window, opt_wfa_step = 12, 6
 
         st.divider()
         st.markdown("##### 🔍 탐색 설정 (2단계 멀티시드)")
@@ -2213,6 +2236,8 @@ with tab4:
                     target         = opt_target,
                     disable_tp     = disable_tp,
                     progress_cb    = _progress,
+                    wfa_window     = opt_wfa_window,
+                    wfa_step       = opt_wfa_step,
                 )
 
             prog_bar.empty()
@@ -2226,13 +2251,24 @@ with tab4:
         opt_target_u = get_state("opt_target_used", "수익률 (%)")
         is_multi     = (opt_target_u == "다중 목적 (수익률↑ + MDD↓)")
 
+        is_wfa_target = opt_target_u in ("WFA 구간평균 수익률", "WFA 안정성 (평균↑ + 편차↓)")
+
         if opt_df is not None and not opt_df.empty:
-            label = "Pareto Front 후보" if is_multi else "유효 결과"
+            label = "Pareto Front 후보" if (is_multi or opt_target_u == "WFA 안정성 (평균↑ + 편차↓)") else "유효 결과"
             st.success(f"✅ {len(opt_df)}개 {label} 발견")
             if is_multi:
                 st.info("수익률↑ + MDD↓ 동시 최적화 결과입니다. 공격형 ~ 안정형 중 마음에 드는 것을 선택하세요.")
+            if is_wfa_target:
+                st.info("🔁 WFA 구간평균 수익률 기준으로 정렬되었습니다. 단일 기간 과적합 위험이 낮은 파라미터입니다.")
 
-            res_cols   = ["단계", "수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"] if "단계" in opt_df.columns else ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
+            # WFA 컬럼 포함 여부에 따라 성과 컬럼 구성
+            _base_res = ["수익률(%)", "MDD(%)", "승률(%)", "PF", "매매횟수"]
+            if is_wfa_target:
+                _wfa_extra = [c for c in ["WFA구간평균(%)", "WFA구간편차(%)"] if c in opt_df.columns]
+                _base_res  = _wfa_extra + _base_res
+            if "단계" in opt_df.columns:
+                _base_res = ["단계"] + _base_res
+            res_cols   = _base_res
             param_cols = [c for c in opt_df.columns if c not in res_cols]
 
             rtab1, rtab2 = st.tabs(["📊 성과 지표", "⚙️ 파라미터"])
