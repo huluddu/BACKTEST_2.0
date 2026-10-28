@@ -905,16 +905,43 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
             buy_msg += f" → 추세필터 통과 ✅ (단기MA{p.ma_trend_short}:{ts_val:.2f} ≥ 장기MA{p.ma_trend_long}:{tl_val:.2f})"
         buy_ok = buy_base
 
-    # 시장 필터
-    mkt_ok = True
-    if p.use_market_filter and mkt_cl is not None and mkt_ma is not None:
-        if not np.isnan(mkt_ma[prev_i]):
-            mkt_ok = mkt_cl[prev_i] > mkt_ma[prev_i]
-    if buy_ok and not mkt_ok:
-        buy_ok  = False
-        buy_msg += " → 시장필터 거부 ❌"
+    # ── RSI 필터 ────────────────────────────────────────────
+    rsi_info = None   # {"value": float, "ok": bool, "msg": str}
+    if p.use_rsi_filter:
+        rsi_arr_raw = sig_ind.get("rsi")
+        if rsi_arr_raw is not None and len(rsi_arr_raw) > cl_b_idx:
+            rsi_val = float(rsi_arr_raw[cl_b_idx])
+            if not np.isnan(rsi_val):
+                rsi_pass = p.rsi_min <= rsi_val <= p.rsi_max
+                rsi_info = {
+                    "value": rsi_val,
+                    "ok":    rsi_pass,
+                    "msg":   f"RSI({p.rsi_period}) = {rsi_val:.1f}  (허용범위 {p.rsi_min:.0f}~{p.rsi_max:.0f})",
+                }
+                if buy_ok and not rsi_pass:
+                    buy_ok   = False
+                    reason_s = "과매수" if rsi_val > p.rsi_max else "과매도"
+                    buy_msg += f" → RSI필터 거부 ❌ ({reason_s}: {rsi_val:.1f})"
 
-    # 매도 조건
+    # ── 시장 필터 ────────────────────────────────────────────
+    mkt_info = None   # {"mkt_cl": float, "mkt_ma": float, "ok": bool, "msg": str}
+    if p.use_market_filter and mkt_cl is not None and mkt_ma is not None:
+        mkt_idx = max(0, i - p.offset_cl_buy + offset_adj)
+        mkt_cl_val  = float(mkt_cl[mkt_idx])  if len(mkt_cl)  > mkt_idx else np.nan
+        mkt_ma_val  = float(mkt_ma[mkt_idx])  if len(mkt_ma)  > mkt_idx else np.nan
+        if not np.isnan(mkt_ma_val):
+            mkt_pass = mkt_cl_val > mkt_ma_val
+            mkt_info = {
+                "mkt_cl": mkt_cl_val,
+                "mkt_ma": mkt_ma_val,
+                "ok":     mkt_pass,
+                "msg":    f"{p.market_ticker} 종가({mkt_cl_val:.2f}) {'>' if mkt_pass else '<'} MA{p.market_ma_period}({mkt_ma_val:.2f})",
+            }
+            if buy_ok and not mkt_pass:
+                buy_ok   = False
+                buy_msg += f" → 시장필터 거부 ❌ ({p.market_ticker} < MA{p.market_ma_period})"
+
+    # ── 매도 조건 ────────────────────────────────────────────
     if p.sell_operator == "OFF":
         sell_ok  = False
         sell_msg = "매도 OFF"
@@ -950,7 +977,15 @@ def get_today_signal(data: dict, p: StrategyParams) -> dict:
         "sell_ok":       sell_ok,
         "buy_msg":       buy_msg,
         "sell_msg":      sell_msg,
-        "last_bar_date": last_bar_date,  # 마지막 거래일 (i봉)
-        "sig_date":      sig_date,       # 신호 계산에 사용된 종가 날짜 (i - offset)
+        "last_bar_date": last_bar_date,
+        "sig_date":      sig_date,
         "trend_up":      trend_up,
+        # 필터 상세 (None = 해당 필터 미사용)
+        "rsi_info":      rsi_info,
+        "mkt_info":      mkt_info,
+        "trend_info":    {
+            "short_ma": p.ma_trend_short, "short_val": round(float(ts_val), 2) if not np.isnan(ts_val) else None,
+            "long_ma":  p.ma_trend_long,  "long_val":  round(float(tl_val), 2) if not np.isnan(tl_val) else None,
+            "trend_up": trend_up,
+        } if (p.use_trend_buy or p.use_trend_sell) else None,
     }
