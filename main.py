@@ -286,6 +286,34 @@ with st.sidebar:
                 st.session_state["_macd_signal"]   = _si(pd_dict.get("macd_signal_period"), 9)
                 _macd_mode_v = str(pd_dict.get("macd_mode", "히스토그램 양전환"))
                 st.session_state["_macd_mode"]     = _macd_mode_v if _macd_mode_v in ["히스토그램 양전환", "골든크로스"] else "히스토그램 양전환"
+                # 도니챈 채널
+                st.session_state["_use_dc"]        = _sb(pd_dict.get("use_donchian", False))
+                st.session_state["_dc_entry"]      = _si(pd_dict.get("dc_period_entry"), 20)
+                st.session_state["_dc_exit"]       = _si(pd_dict.get("dc_period_exit"), 10)
+                _dc_buy_list  = ["상단 돌파", "하단 이탈"]
+                _dc_sell_list = ["하단 이탈", "상단 돌파", "OFF"]
+                dc_buy_v  = str(pd_dict.get("dc_buy_mode",  "상단 돌파"))
+                dc_sell_v = str(pd_dict.get("dc_sell_mode", "하단 이탈"))
+                st.session_state["_dc_buy_mode"]   = dc_buy_v  if dc_buy_v  in _dc_buy_list  else "상단 돌파"
+                st.session_state["_dc_sell_mode"]  = dc_sell_v if dc_sell_v in _dc_sell_list else "하단 이탈"
+                # 스윙 하이/로우
+                st.session_state["_use_swing"]     = _sb(pd_dict.get("use_swing", False))
+                st.session_state["_swing_n"]       = _si(pd_dict.get("swing_n"), 5)
+                _sw_buy_list  = ["저항 돌파", "지지 반등"]
+                _sw_sell_list = ["지지 이탈", "저항 도달", "OFF"]
+                sw_buy_v  = str(pd_dict.get("swing_buy_mode",  "저항 돌파"))
+                sw_sell_v = str(pd_dict.get("swing_sell_mode", "지지 이탈"))
+                st.session_state["_swing_buy_mode"]  = sw_buy_v  if sw_buy_v  in _sw_buy_list  else "저항 돌파"
+                st.session_state["_swing_sell_mode"] = sw_sell_v if sw_sell_v in _sw_sell_list else "지지 이탈"
+                # 볼륨 프로파일
+                st.session_state["_use_vp"]        = _sb(pd_dict.get("use_vp", False))
+                st.session_state["_vp_period"]     = _si(pd_dict.get("vp_period"), 60)
+                _vp_buy_list  = ["POC 상향 돌파", "VAL 지지 반등", "VAH 돌파"]
+                _vp_sell_list = ["POC 하향 이탈", "VAL 이탈", "OFF"]
+                vp_buy_v  = str(pd_dict.get("vp_buy_mode",  "POC 상향 돌파"))
+                vp_sell_v = str(pd_dict.get("vp_sell_mode", "POC 하향 이탈"))
+                st.session_state["_vp_buy_mode"]   = vp_buy_v  if vp_buy_v  in _vp_buy_list  else "POC 상향 돌파"
+                st.session_state["_vp_sell_mode"]  = vp_sell_v if vp_sell_v in _vp_sell_list else "POC 하향 이탈"
                 # 시장 필터
                 st.session_state["_use_mkt"]       = _sb(pd_dict.get("use_market_filter", False))
                 st.session_state["_mkt_ma_p"]      = _si(pd_dict.get("market_ma_period"), 200)
@@ -659,8 +687,21 @@ with st.sidebar:
                 "macd_mode":           st.session_state.get("macd_mode", "히스토그램 양전환"),
                 "use_rsi_filter":      st.session_state.get("use_rsi", False),
                 "rsi_period":          st.session_state.get("rsi_period", 14),
-                "rsi_min":             30,
-                "rsi_max":             70,
+                "rsi_min":             st.session_state.get("_rsi_range", (30, 70))[0],
+                "rsi_max":             st.session_state.get("_rsi_range", (30, 70))[1],
+                "use_donchian":        st.session_state.get("use_dc", False),
+                "dc_period_entry":     st.session_state.get("dc_entry", 20),
+                "dc_period_exit":      st.session_state.get("dc_exit", 10),
+                "dc_buy_mode":         st.session_state.get("dc_buy_mode", "상단 돌파"),
+                "dc_sell_mode":        st.session_state.get("dc_sell_mode", "하단 이탈"),
+                "use_swing":           st.session_state.get("use_swing", False),
+                "swing_n":             st.session_state.get("swing_n", 5),
+                "swing_buy_mode":      st.session_state.get("swing_buy_mode", "저항 돌파"),
+                "swing_sell_mode":     st.session_state.get("swing_sell_mode", "지지 이탈"),
+                "use_vp":              st.session_state.get("use_vp", False),
+                "vp_period":           st.session_state.get("vp_period", 60),
+                "vp_buy_mode":         st.session_state.get("vp_buy_mode", "POC 상향 돌파"),
+                "vp_sell_mode":        st.session_state.get("vp_sell_mode", "POC 하향 이탈"),
                 "use_market_filter":   st.session_state.get("use_mkt", False),
                 "market_ma_period":    st.session_state.get("mkt_ma_p", 200),
                 "use_atr_stop":        st.session_state.get("use_atr_stop", False),
@@ -709,6 +750,19 @@ def _collect_params_dict() -> dict:
         "rsi_period":          rsi_period,
         "rsi_min":             rsi_min,
         "rsi_max":             rsi_max,
+        "use_donchian":        use_dc,
+        "dc_period_entry":     dc_entry,
+        "dc_period_exit":      dc_exit,
+        "dc_buy_mode":         dc_buy_mode,
+        "dc_sell_mode":        dc_sell_mode,
+        "use_swing":           use_swing,
+        "swing_n":             swing_n,
+        "swing_buy_mode":      swing_buy_mode,
+        "swing_sell_mode":     swing_sell_mode,
+        "use_vp":              use_vp,
+        "vp_period":           vp_period,
+        "vp_buy_mode":         vp_buy_mode,
+        "vp_sell_mode":        vp_sell_mode,
         "use_market_filter":   use_mkt,
         "market_ma_period":    mkt_ma_p,
         "use_atr_stop":        use_atr_stop,
