@@ -714,6 +714,8 @@ with st.sidebar:
                 "initial_cash":        st.session_state.get("init_cash", 5000000),
                 "fee_bps":             st.session_state.get("fee_bps", 25),
                 "slip_bps":            st.session_state.get("slip_bps", 1),
+                "start_date":          str(st.session_state.get("start_date", "2015-01-01")),
+                "end_date":            str(st.session_state.get("end_date", str(datetime.date.today()))),
             }
             presets = get_state("presets")
             presets[save_name] = params_dict
@@ -3210,9 +3212,10 @@ with tab9:
                 d = presets_ps[name]
                 info_rows.append({
                     "전략명": name,
-                    "티커":   d.get("ticker", ""),
-                    "시작일": d.get("start_date", ""),
-                    "종료일": d.get("end_date", ""),
+                    "시그널티커": d.get("signal_ticker_input", ""),
+                    "매매티커":   d.get("trade_ticker_input", ""),
+                    "시작일": d.get("start_date", "—"),
+                    "종료일": d.get("end_date", "—"),
                     "시장필터": "✅" if d.get("use_market_filter") else "—",
                 })
             st.dataframe(pd.DataFrame(info_rows), use_container_width=True, hide_index=True)
@@ -3230,8 +3233,17 @@ with tab9:
                 for name in selected_strats:
                     d = presets_ps[name]
                     p_obj = preset_to_params(d)
+                    _sd = d.get("start_date", "2015-01-01")
+                    _ed = d.get("end_date",   str(datetime.date.today()))
                     try:
-                        data_obj = prepare_data(p_obj)
+                        data_obj = prepare_data(
+                            p_obj.signal_ticker,
+                            p_obj.trade_ticker,
+                            p_obj.market_ticker,
+                            _sd, _ed, p_obj,
+                        )
+                        if data_obj is None:
+                            raise ValueError("데이터가 비어있습니다. 티커/기간을 확인하세요.")
                     except Exception as e:
                         st.error(f"[{name}] 데이터 로드 실패: {e}")
                         error_flag = True
