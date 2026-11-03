@@ -669,7 +669,7 @@ def run_backtest(data: dict, p: StrategyParams) -> BacktestResult:
                 fill = _fill_price(exec_price, "sell", p.fee_bps, p.slip_bps)
                 cash = position * fill
                 trade_log.append(_make_log(
-                    base, i, close_today, "SELL", exec_price, cash + position * close_today,
+                    base, i, close_today, "SELL", exec_price, cash,  # position은 이미 cash에 반영됨
                     reason, detail, stop_hit, take_hit
                 ))
                 position   = 0.0
