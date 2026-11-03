@@ -31,6 +31,7 @@ from modules.optimizer import (
 from modules.portfolio import (
     preset_to_params, run_portfolio_scan, run_period_stress_test, run_yearly_returns,
 )
+from modules.portfolio_sim import run_portfolio_sim
 from modules.utils import (
     save_strategy, load_strategies, delete_strategy,
     calc_monthly_returns, calc_annual_returns,
@@ -56,6 +57,7 @@ init_session_state({
     "data":      None,
     "presets":   {},
     "opt_result": None,
+    "ps_result":  None,
     "gemini_key": "",
     "sheet_name": "backtest_strategies",
     "sheet_tab":  "전략목록",
@@ -1149,7 +1151,7 @@ def _draw_monthly_heatmap(result: BacktestResult, chart_data: dict) -> go.Figure
 # 메인 탭 구성
 # ══════════════════════════════════════════════════════════
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📡 오늘의 시그널",
     "📋 전략 프리셋",
     "🔬 백테스트",
@@ -1158,6 +1160,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 구간 스트레스",
     "♾️ 무한매수 비교",
     "🔍 전략 검증",
+    "🤝 공동계좌 시뮬",
 ], on_change="rerun")
 
 
@@ -3162,4 +3165,225 @@ with tab8:
                         margin=dict(l=0, r=0, t=40, b=0),
                     )
                     st.plotly_chart(fig_sv, use_container_width=True)
-                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════
+# Tab 9: 공동계좌 시뮬
+# ══════════════════════════════════════════════════════════
+with tab9:
+    st.markdown("## 🤝 공동계좌 선착순 포트폴리오 시뮬레이션")
+    st.caption("저장된 전략 2개 이상을 골라 하나의 공동 현금으로 운용합니다. 동시 매수 신호 시 등록 순서로 우선순위를 결정합니다.")
+
+    # ── 전략 선택 ─────────────────────────────────────────────
+    presets_ps = load_strategies()
+    if not presets_ps or len(presets_ps) < 2:
+        st.warning("저장된 전략이 2개 이상 필요합니다. 먼저 '백테스트' 탭에서 전략을 저장하세요.")
+    else:
+        preset_names_ps = list(presets_ps.keys())
+
+        col_sel1, col_sel2 = st.columns([3, 1])
+        with col_sel1:
+            selected_strats = st.multiselect(
+                "📌 전략 선택 (등록 순서 = 매수 우선순위)",
+                options=preset_names_ps,
+                default=preset_names_ps[:min(3, len(preset_names_ps))],
+                key="ps_selected_strats",
+            )
+        with col_sel2:
+            ps_cash = st.number_input(
+                "💰 초기 투자금 (원)",
+                min_value=1_000_000,
+                max_value=1_000_000_000,
+                value=10_000_000,
+                step=1_000_000,
+                format="%d",
+                key="ps_initial_cash",
+            )
+
+        if len(selected_strats) < 2:
+            st.info("전략을 2개 이상 선택하세요.")
+        else:
+            # 전략별 티커 및 기간 표시
+            st.markdown("##### 선택된 전략 정보")
+            info_rows = []
+            for name in selected_strats:
+                d = presets_ps[name]
+                info_rows.append({
+                    "전략명": name,
+                    "티커":   d.get("ticker", ""),
+                    "시작일": d.get("start_date", ""),
+                    "종료일": d.get("end_date", ""),
+                    "시장필터": "✅" if d.get("use_market_filter") else "—",
+                })
+            st.dataframe(pd.DataFrame(info_rows), use_container_width=True, hide_index=True)
+
+            if st.button("🚀 포트폴리오 시뮬 실행", type="primary", key="ps_run_btn"):
+                prog_bar = st.progress(0, text="준비 중...")
+
+                def _ps_progress(step, total, msg):
+                    pct = int(step / max(total, 1) * 100)
+                    prog_bar.progress(pct, text=msg)
+
+                # 전략 configs 구성
+                configs = []
+                error_flag = False
+                for name in selected_strats:
+                    d = presets_ps[name]
+                    p_obj = preset_to_params(d)
+                    try:
+                        data_obj = prepare_data(p_obj)
+                    except Exception as e:
+                        st.error(f"[{name}] 데이터 로드 실패: {e}")
+                        error_flag = True
+                        break
+                    configs.append({"name": name, "data": data_obj, "params": p_obj})
+
+                if not error_flag:
+                    ps_result = run_portfolio_sim(
+                        configs,
+                        initial_cash=float(ps_cash),
+                        progress_cb=_ps_progress,
+                    )
+                    st.session_state["ps_result"] = ps_result
+                    prog_bar.progress(100, text="완료!")
+
+        # ── 결과 표시 ─────────────────────────────────────────
+        ps_result = st.session_state.get("ps_result", None)
+        if ps_result is not None and ps_result.is_valid:
+            st.divider()
+
+            # 핵심 지표
+            st.markdown("### 📊 성과 요약")
+            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+            mc1.metric("총 수익률",   f"{ps_result.total_return_pct:.1f}%")
+            mc2.metric("CAGR",        f"{ps_result.cagr_pct:.1f}%")
+            mc3.metric("최대 낙폭",   f"{ps_result.mdd_pct:.1f}%")
+            mc4.metric("샤프 비율",   f"{ps_result.sharpe:.2f}")
+            mc5.metric("칼마 비율",   f"{ps_result.calmar:.2f}")
+
+            mc6, mc7, mc8 = st.columns(3)
+            mc6.metric("현금 대기 비율", f"{ps_result.cash_ratio_pct:.1f}%")
+            mc7.metric("건너뛴 거래",   f"{len(ps_result.skipped_log)}건")
+            mc8.metric("동시 보유 일수", f"{ps_result.overlap_days}일")
+
+            st.divider()
+
+            # 자산 곡선
+            st.markdown("### 📈 자산 곡선")
+            dates_ps = ps_result.dates
+            fig_eq = go.Figure()
+            fig_eq.add_trace(go.Scatter(
+                x=dates_ps, y=ps_result.equity_curve,
+                name="전체 자산", line=dict(color="#26a69a", width=2),
+            ))
+            fig_eq.add_trace(go.Scatter(
+                x=dates_ps, y=ps_result.cash_curve,
+                name="현금", line=dict(color="#90a4ae", width=1, dash="dot"),
+                fill="tozeroy", fillcolor="rgba(144,164,174,0.1)",
+            ))
+            fig_eq.update_layout(
+                height=350, template="plotly_dark",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=0, r=0, t=10, b=0),
+                yaxis_title="자산 (원)",
+            )
+            st.plotly_chart(fig_eq, use_container_width=True)
+
+            # 전략별 보유가치 추이
+            st.markdown("### 🧩 전략별 보유가치 추이")
+            fig_strat = go.Figure()
+            COLORS_PS = ["#ef5350", "#42a5f5", "#66bb6a", "#ffa726", "#ab47bc", "#26c6da"]
+            for s_idx, name in enumerate(ps_result.strategy_names):
+                clr = COLORS_PS[s_idx % len(COLORS_PS)]
+                fig_strat.add_trace(go.Scatter(
+                    x=dates_ps,
+                    y=ps_result.strategy_curves[name],
+                    name=name,
+                    line=dict(color=clr, width=1.5),
+                    stackgroup="one",
+                    fillcolor=clr.replace(")", ",0.5)").replace("rgb", "rgba") if clr.startswith("rgb") else clr + "80",
+                ))
+            fig_strat.update_layout(
+                height=280, template="plotly_dark",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=0, r=0, t=10, b=0),
+                yaxis_title="보유가치 (원)",
+            )
+            st.plotly_chart(fig_strat, use_container_width=True)
+
+            # 비중 추이
+            st.markdown("### ⚖️ 비중 추이 (%)")
+            fig_w = go.Figure()
+            for s_idx, name in enumerate(ps_result.strategy_names):
+                clr = COLORS_PS[s_idx % len(COLORS_PS)]
+                fig_w.add_trace(go.Scatter(
+                    x=dates_ps,
+                    y=ps_result.weight_curves[name],
+                    name=name,
+                    stackgroup="one",
+                    line=dict(width=0),
+                ))
+            fig_w.update_layout(
+                height=220, template="plotly_dark",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=0, r=0, t=10, b=0),
+                yaxis=dict(title="비중 (%)", range=[0, 100]),
+            )
+            st.plotly_chart(fig_w, use_container_width=True)
+
+            st.divider()
+
+            # 연도별 수익률
+            st.markdown("### 📅 연도별 수익률")
+            if not ps_result.yearly_returns.empty:
+                st.dataframe(
+                    ps_result.yearly_returns.style.format(
+                        {c: "{:.1f}%" for c in ps_result.yearly_returns.columns if "%" in c}
+                    ),
+                    use_container_width=True, hide_index=True,
+                )
+
+            st.divider()
+
+            # 매매 로그
+            st.markdown("### 📋 매매 로그")
+            if ps_result.trade_log:
+                df_tlog = pd.DataFrame(ps_result.trade_log)
+                # 신호 색상 표시용
+                def _color_signal(val):
+                    if val == "BUY":
+                        return "color: #26a69a; font-weight:bold"
+                    elif val == "SELL":
+                        return "color: #ef5350; font-weight:bold"
+                    return ""
+                st.dataframe(
+                    df_tlog.style.applymap(_color_signal, subset=["신호"]),
+                    use_container_width=True, hide_index=True,
+                )
+            else:
+                st.info("매매 기록이 없습니다.")
+
+            st.divider()
+
+            # 건너뛴 거래
+            if ps_result.skipped_log:
+                with st.expander(f"⏭️ 건너뛴 거래 ({len(ps_result.skipped_log)}건) — 현금 부족으로 미체결"):
+                    st.dataframe(
+                        pd.DataFrame(ps_result.skipped_log),
+                        use_container_width=True, hide_index=True,
+                    )
+
+            # 겹침 분석
+            if ps_result.overlap_days > 0:
+                with st.expander(f"🔀 동시 보유 구간 분석 (총 {ps_result.overlap_days}일)"):
+                    st.caption("선착순 설계상 동시 보유는 발생하지 않아야 합니다. 아래 구간이 있다면 데이터 이상을 확인하세요.")
+                    if ps_result.overlap_periods:
+                        st.dataframe(
+                            pd.DataFrame(ps_result.overlap_periods),
+                            use_container_width=True, hide_index=True,
+                        )
+            else:
+                st.success("✅ 동시 보유 구간 없음 — 선착순 설계 정상 작동")
+
+        elif ps_result is not None and not ps_result.is_valid:
+            st.error(f"시뮬레이션 오류: {ps_result.error}")
