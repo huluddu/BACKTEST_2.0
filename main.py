@@ -3175,7 +3175,7 @@ with tab9:
     st.caption("저장된 전략 2개 이상을 골라 하나의 공동 현금으로 운용합니다. 동시 매수 신호 시 등록 순서로 우선순위를 결정합니다.")
 
     # ── 전략 선택 ─────────────────────────────────────────────
-    presets_ps = load_strategies()
+    presets_ps = load_strategies(get_state("sheet_name"), get_state("sheet_tab"))
     if not presets_ps or len(presets_ps) < 2:
         st.warning("저장된 전략이 2개 이상 필요합니다. 먼저 '백테스트' 탭에서 전략을 저장하세요.")
     else:
