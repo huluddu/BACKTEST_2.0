@@ -642,23 +642,40 @@ def run_portfolio_sim(
         "date":  dates_pd,
         "total": curve,
     })
-    for s_idx in range(n_strat):
-        df_curve[names[s_idx]] = strat_vals[s_idx]
     df_curve["year"] = df_curve["date"].dt.year
+
+    # 매매 로그에서 전략별 연도별 실현손익 집계
+    # - 합산(%): 연도 첫날 전체 자산 대비 마지막날 전체 자산 변화율
+    # - 전략별(%): 그 해 BUY→SELL 실현 손익 합산 / 연초 전체 자산 (매매 없으면 표시 안 함)
+    realized_pnl = {}   # {(year, name): 실현손익 합계}
+    buy_cost_map  = {}  # {name: 가장 최근 BUY 금액}
+    for rec in trade_log:
+        yr_r = pd.Timestamp(rec["날짜"]).year
+        nm   = rec["전략"]
+        if rec["신호"] == "BUY":
+            buy_cost_map[nm] = rec["금액"]
+        elif rec["신호"] == "SELL":
+            buy_cost = buy_cost_map.pop(nm, None)
+            if buy_cost is not None:
+                pnl = rec["금액"] - buy_cost
+                key = (yr_r, nm)
+                realized_pnl[key] = realized_pnl.get(key, 0.0) + pnl
 
     yearly_rows = []
     for yr, grp in df_curve.groupby("year"):
         row = {"연도": yr}
         start_total = grp["total"].iloc[0]
         end_total   = grp["total"].iloc[-1]
-        row["합산(%)"] = round((end_total / start_total - 1) * 100, 1)
+        if start_total > 0:
+            row["합산(%)"] = round((end_total / start_total - 1) * 100, 1)
+        else:
+            row["합산(%)"] = None
         for name in names:
-            start_v = grp[name].iloc[0]
-            end_v   = grp[name].iloc[-1]
-            if start_v > 0:
-                row[f"{name}(%)"] = round((end_v / start_v - 1) * 100, 1)
+            pnl = realized_pnl.get((yr, name), None)
+            if pnl is not None and start_total > 0:
+                row[f"{name}(%)"] = round(pnl / start_total * 100, 1)
             else:
-                row[f"{name}(%)"] = None
+                row[f"{name}(%)"] = None   # 그 해 실현 거래 없음
         yearly_rows.append(row)
     yearly_df = pd.DataFrame(yearly_rows)
 
@@ -724,4 +741,161 @@ def run_portfolio_sim(
         overlap_days     = overlap_days_count,
         cash_ratio_pct   = round(cash_ratio, 1),
         strategy_names   = names,
+    )
+
+
+# ════════════════════════════════════════════════════════
+# 4. 공동계좌 워크포워드 (롤링 윈도우) 분석
+# ════════════════════════════════════════════════════════
+
+@dataclass
+class PortfolioWalkForwardResult:
+    windows:        list  = field(default_factory=list)   # 각 구간 결과
+    returns:        list  = field(default_factory=list)   # 구간별 수익률
+    avg_return:     float = 0.0
+    std_return:     float = 0.0
+    win_rate:       float = 0.0
+    total_return:   float = 0.0
+    is_valid:       bool  = False
+
+
+def run_portfolio_walk_forward(
+    strategy_base_configs: list,  # [{"name": str, "signal_ticker": str, "trade_ticker": str, "market_ticker": str, "params": StrategyParams}]
+    start_date,
+    end_date,
+    initial_cash:   float = 10_000_000.0,
+    window_months:  int   = 12,
+    step_months:    int   = 6,
+    progress_cb     = None,
+) -> PortfolioWalkForwardResult:
+    """
+    공동계좌 워크포워드 (롤링 윈도우) 분석.
+    전체 기간을 window_months 구간으로 연속 실행하며
+    각 구간에서 run_portfolio_sim() 실행.
+
+    Args:
+        strategy_base_configs: 전략 목록. 각 항목:
+            - name: 전략명
+            - signal_ticker, trade_ticker, market_ticker: 티커
+            - params: StrategyParams
+        start_date:    전체 시작일
+        end_date:      전체 종료일
+        initial_cash:  구간별 초기 투자금 (구간마다 동일)
+        window_months: 구간 길이 (개월)
+        step_months:   스텝 (개월)
+
+    Returns:
+        PortfolioWalkForwardResult
+    """
+    start_dt = pd.to_datetime(start_date)
+    end_dt   = pd.to_datetime(end_date)
+
+    # 구간 생성
+    windows = []
+    cur = start_dt
+    while True:
+        win_end = cur + pd.DateOffset(months=window_months)
+        if win_end > end_dt:
+            break
+        windows.append({
+            "start": cur.date(),
+            "end":   win_end.date(),
+        })
+        cur += pd.DateOffset(months=step_months)
+
+    if not windows:
+        return PortfolioWalkForwardResult(is_valid=False)
+
+    total_w = len(windows)
+    results = []
+
+    for wi, w in enumerate(windows):
+        if progress_cb:
+            progress_cb(wi, total_w, f"구간 {wi+1}/{total_w}: {w['start']} ~ {w['end']}")
+
+        try:
+            # 각 구간마다 데이터 로드 후 run_portfolio_sim 실행
+            configs = []
+            data_ok = True
+            for base_cfg in strategy_base_configs:
+                try:
+                    data_obj = prepare_data(
+                        base_cfg["signal_ticker"],
+                        base_cfg["trade_ticker"],
+                        base_cfg["market_ticker"],
+                        str(w["start"]), str(w["end"]),
+                        base_cfg["params"],
+                    )
+                    if data_obj is None or len(data_obj["base"]) < 20:
+                        data_ok = False
+                        break
+                    configs.append({
+                        "name":   base_cfg["name"],
+                        "data":   data_obj,
+                        "params": base_cfg["params"],
+                    })
+                except Exception:
+                    data_ok = False
+                    break
+
+            if not data_ok or len(configs) < 2:
+                results.append({
+                    **w,
+                    "return": None, "mdd": None,
+                    "trades": None, "cash_ratio": None,
+                    "status": "데이터 부족",
+                })
+                continue
+
+            ps_res = run_portfolio_sim(configs, initial_cash=initial_cash)
+            if not ps_res.is_valid:
+                results.append({
+                    **w,
+                    "return": None, "mdd": None,
+                    "trades": None, "cash_ratio": None,
+                    "status": f"실패: {ps_res.error}",
+                })
+                continue
+
+            results.append({
+                **w,
+                "return":     round(ps_res.total_return_pct, 1),
+                "cagr":       round(ps_res.cagr_pct, 1),
+                "mdd":        round(ps_res.mdd_pct, 1),
+                "sharpe":     round(ps_res.sharpe, 2),
+                "trades":     len(ps_res.trade_log),
+                "cash_ratio": round(ps_res.cash_ratio_pct, 1),
+                "skipped":    len(ps_res.skipped_log),
+                "status":     "완료",
+            })
+
+        except Exception as e:
+            results.append({
+                **w,
+                "return": None, "mdd": None,
+                "trades": None, "cash_ratio": None,
+                "status": f"오류: {str(e)[:40]}",
+            })
+
+    if progress_cb:
+        progress_cb(total_w, total_w, "완료")
+
+    valid_returns = [r["return"] for r in results if r.get("return") is not None]
+    if not valid_returns:
+        return PortfolioWalkForwardResult(windows=results, is_valid=False)
+
+    # 구간별 수익률 복리 합산 (독립 구간으로 각각 초기 투자금 기준)
+    total_ret = 1.0
+    for r in valid_returns:
+        total_ret *= (1 + r / 100)
+    total_ret = (total_ret - 1) * 100
+
+    return PortfolioWalkForwardResult(
+        windows      = results,
+        returns      = valid_returns,
+        avg_return   = round(float(np.mean(valid_returns)), 1),
+        std_return   = round(float(np.std(valid_returns)), 1),
+        win_rate     = round(sum(1 for r in valid_returns if r > 0) / len(valid_returns) * 100, 1),
+        total_return = round(total_ret, 1),
+        is_valid     = True,
     )
