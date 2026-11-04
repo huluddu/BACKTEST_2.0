@@ -3370,7 +3370,7 @@ with tab9:
             st.divider()
 
             # 매매 로그
-            st.markdown("### 📋 매매 로그")
+            st.markdown(f"### 📋 매매 로그 ({len(ps_result.trade_log)}건)")
             if ps_result.trade_log:
                 df_tlog = pd.DataFrame(ps_result.trade_log)
                 # 신호 색상 표시용
@@ -3380,10 +3380,11 @@ with tab9:
                     elif val == "SELL":
                         return "color: #ef5350; font-weight:bold"
                     return ""
-                st.dataframe(
-                    df_tlog.style.applymap(_color_signal, subset=["신호"]),
-                    use_container_width=True, hide_index=True,
-                )
+                try:
+                    styled = df_tlog.style.map(_color_signal, subset=["신호"])
+                except AttributeError:
+                    styled = df_tlog.style.applymap(_color_signal, subset=["신호"])
+                st.dataframe(styled, use_container_width=True, hide_index=True)
             else:
                 st.info("매매 기록이 없습니다.")
 
