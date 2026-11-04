@@ -714,8 +714,6 @@ with st.sidebar:
                 "initial_cash":        st.session_state.get("init_cash", 5000000),
                 "fee_bps":             st.session_state.get("fee_bps", 25),
                 "slip_bps":            st.session_state.get("slip_bps", 1),
-                "start_date":          str(st.session_state.get("start_date", "2015-01-01")),
-                "end_date":            str(st.session_state.get("end_date", str(datetime.date.today()))),
             }
             presets = get_state("presets")
             presets[save_name] = params_dict
@@ -3202,6 +3200,22 @@ with tab9:
                 key="ps_initial_cash",
             )
 
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            ps_start = st.date_input(
+                "📅 시작일",
+                value=datetime.date.today() - datetime.timedelta(days=365 * 5),
+                min_value=datetime.date(1990, 1, 1),
+                key="ps_start_date",
+            )
+        with col_d2:
+            ps_end = st.date_input(
+                "📅 종료일",
+                value=datetime.date.today(),
+                min_value=datetime.date(1990, 1, 1),
+                key="ps_end_date",
+            )
+
         if len(selected_strats) < 2:
             st.info("전략을 2개 이상 선택하세요.")
         else:
@@ -3211,12 +3225,10 @@ with tab9:
             for name in selected_strats:
                 d = presets_ps[name]
                 info_rows.append({
-                    "전략명": name,
+                    "전략명":     name,
                     "시그널티커": d.get("signal_ticker_input", ""),
                     "매매티커":   d.get("trade_ticker_input", ""),
-                    "시작일": d.get("start_date", "—"),
-                    "종료일": d.get("end_date", "—"),
-                    "시장필터": "✅" if d.get("use_market_filter") else "—",
+                    "시장필터":   "✅" if d.get("use_market_filter") else "—",
                 })
             st.dataframe(pd.DataFrame(info_rows), use_container_width=True, hide_index=True)
 
@@ -3233,8 +3245,8 @@ with tab9:
                 for name in selected_strats:
                     d = presets_ps[name]
                     p_obj = preset_to_params(d)
-                    _sd = d.get("start_date", "2015-01-01")
-                    _ed = d.get("end_date",   str(datetime.date.today()))
+                    _sd = str(ps_start)
+                    _ed = str(ps_end)
                     try:
                         data_obj = prepare_data(
                             p_obj.signal_ticker,
