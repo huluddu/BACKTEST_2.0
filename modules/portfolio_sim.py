@@ -543,8 +543,22 @@ def run_portfolio_sim(
                 entry_bars[s_idx]   = -1
                 hold_days[s_idx]    = 0
 
-        # ── B. 매수 신호 처리 (선착순 = 등록 순서) ────
-        for s_idx in range(n_strat):
+        # ── B. 매수 신호 처리 ────────────────────────────────
+        # 당일 청산된 전략이 먼저 재진입 (A안 우선권)
+        # → 그 뒤 나머지 전략을 등록 순서대로 (선착순)
+        sold_today = set()
+        for rec in reversed(trade_log):
+            if rec["날짜"] != date:
+                break
+            if rec["신호"] == "SELL":
+                for s_i, nm in enumerate(names):
+                    if nm == rec["전략"]:
+                        sold_today.add(s_i)
+
+        buy_order = sorted(range(n_strat), key=lambda x: (0 if x in sold_today else 1, x))
+
+        MIN_CASH = 1_000   # 1,000원 미만은 현금 없음으로 처리
+        for s_idx in buy_order:
             if positions[s_idx] > 0:
                 continue   # 이미 보유 중인 전략은 매수 불가
 
@@ -555,13 +569,12 @@ def run_portfolio_sim(
             if not sig["buy"][i]:
                 continue
 
-            if cash <= 0:
-                # 현금 없음 → 건너뜀 기록
+            if cash < MIN_CASH:
                 skipped_log.append({
-                    "날짜":   date,
-                    "전략":   names[s_idx],
-                    "이유":   "현금 부족",
-                    "상세":   sig["buy_msg"][i],
+                    "날짜":     date,
+                    "전략":     names[s_idx],
+                    "이유":     "현금 부족",
+                    "상세":     sig["buy_msg"][i],
                     "당시현금": round(cash, 0),
                 })
                 continue
