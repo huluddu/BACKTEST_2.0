@@ -31,7 +31,7 @@ from modules.optimizer import (
 from modules.portfolio import (
     preset_to_params, run_portfolio_scan, run_period_stress_test, run_yearly_returns,
 )
-from modules.portfolio_sim import run_portfolio_sim
+from modules.portfolio_sim import run_portfolio_sim, run_portfolio_walk_forward, PortfolioWalkForwardResult
 from modules.utils import (
     save_strategy, load_strategies, delete_strategy,
     calc_monthly_returns, calc_annual_returns,
@@ -58,6 +58,7 @@ init_session_state({
     "presets":   {},
     "opt_result": None,
     "ps_result":  None,
+    "ps_wf_result": None,
     "gemini_key": "",
     "sheet_name": "backtest_strategies",
     "sheet_tab":  "전략목록",
@@ -3412,3 +3413,150 @@ with tab9:
 
         elif ps_result is not None and not ps_result.is_valid:
             st.error(f"시뮬레이션 오류: {ps_result.error}")
+        # ══ 워크포워드 섬션 ════════════════════════════════════════
+        st.divider()
+        st.markdown("## 🔄 구간별 유효성 검증 (워크포워드)")
+        st.caption("전체 기간을 롤링 윈도우로 나누어 각 구간마다 공동계좌 시뮬을 실행합니다. 미래편향 없이 전략이 여러 시장 환경에서 지속성 있는지 확인합니다.")
+
+        with st.expander("⚙️ 워크포워드 설정", expanded=False):
+            wf_col1, wf_col2 = st.columns(2)
+            with wf_col1:
+                ps_wf_window = st.number_input(
+                    "테스트 구간 (개월)",
+                    min_value=3, max_value=60, value=12, step=3,
+                    key="ps_wf_window",
+                    help="롤링 윈도우 한 운동 길이",
+                )
+            with wf_col2:
+                ps_wf_step = st.number_input(
+                    "스텝 (개월)",
+                    min_value=1, max_value=24, value=6, step=1,
+                    key="ps_wf_step",
+                    help="구간이 얼마마다 이동하는지",
+                )
+
+        if st.button("포트폴리오 워크포워드 실행", type="secondary", key="ps_wf_btn"):
+            if len(selected_strats) < 2:
+                st.info("전략을 2개 이상 선택하세요.")
+            else:
+                # 전략 base_configs 구성
+                wf_base_cfgs = []
+                wf_error = False
+                for name in selected_strats:
+                    d = presets_ps[name]
+                    p_obj = preset_to_params(d)
+                    wf_base_cfgs.append({
+                        "name":           name,
+                        "signal_ticker":  p_obj.signal_ticker,
+                        "trade_ticker":   p_obj.trade_ticker,
+                        "market_ticker":  p_obj.market_ticker,
+                        "params":         p_obj,
+                    })
+
+                wf_prog = st.progress(0, text="워크포워드 준비 중...")
+
+                def _ps_wf_progress(step, total, msg):
+                    pct = int(step / max(total, 1) * 100)
+                    wf_prog.progress(pct, text=msg)
+
+                _sd = str(ps_start)
+                _ed = str(ps_end)
+                wf_res = run_portfolio_walk_forward(
+                    strategy_base_configs = wf_base_cfgs,
+                    start_date            = _sd,
+                    end_date              = _ed,
+                    initial_cash          = float(ps_cash),
+                    window_months         = int(ps_wf_window),
+                    step_months           = int(ps_wf_step),
+                    progress_cb           = _ps_wf_progress,
+                )
+                st.session_state["ps_wf_result"] = wf_res
+                wf_prog.progress(100, text="완료!")
+
+        # 워크포워드 결과 표시
+        ps_wf_result = st.session_state.get("ps_wf_result", None)
+        if ps_wf_result is not None:
+            if not ps_wf_result.is_valid:
+                st.warning("워크포워드: 유효한 구간이 없습니다. 기간을 늘리거나 운동 길이를 줄여보세요.")
+            else:
+                st.markdown("#### 통계 요약")
+                wc1, wc2, wc3, wc4 = st.columns(4)
+                wc1.metric("평균 구간 수익률", f"{ps_wf_result.avg_return:.1f}%")
+                wc2.metric("표준편차", f"{ps_wf_result.std_return:.1f}%")
+                wc3.metric("승률 (수익>0)", f"{ps_wf_result.win_rate:.1f}%")
+                wc4.metric("완료 구간", f"{len(ps_wf_result.windows)}구간")
+
+                # 구간별 수익률 차트
+                st.markdown("#### 구간별 수익률")
+                wf_wins = ps_wf_result.windows
+                wf_labels = [f"{w['start']}" for w in wf_wins]
+                wf_rets   = [w.get("return") for w in wf_wins]
+
+                fig_wf = go.Figure()
+                bar_colors = [
+                    "#26a69a" if (r is not None and r >= 0) else "#ef5350"
+                    for r in wf_rets
+                ]
+                fig_wf.add_trace(go.Bar(
+                    x=wf_labels,
+                    y=[r if r is not None else 0 for r in wf_rets],
+                    marker_color=bar_colors,
+                    text=[f"{r:.1f}%" if r is not None else "N/A" for r in wf_rets],
+                    textposition="outside",
+                ))
+                fig_wf.add_hline(y=0, line_color="white", line_width=1, opacity=0.5)
+                fig_wf.update_layout(
+                    height=320, template="plotly_dark",
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    yaxis_title="수익률 (%)",
+                    xaxis_title="구간 시작일",
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_wf, use_container_width=True)
+
+                # 구간별 상세 테이블
+                st.markdown("#### 구간별 상세")
+                wf_df = pd.DataFrame(ps_wf_result.windows)
+                col_rename = {
+                    "start":      "시작일",
+                    "end":        "종료일",
+                    "return":     "수익률(%)",
+                    "cagr":       "CAGR(%)",
+                    "mdd":        "MDD(%)",
+                    "sharpe":     "샤프",
+                    "trades":     "매매횟수",
+                    "cash_ratio": "현금대기(%)",
+                    "skipped":    "건너대(건)",
+                    "status":     "상태",
+                }
+                wf_df = wf_df.rename(columns={k: v for k, v in col_rename.items() if k in wf_df.columns})
+
+                def _color_ret(val):
+                    try:
+                        v = float(val)
+                        if v > 0:
+                            return "color: #26a69a"
+                        elif v < 0:
+                            return "color: #ef5350"
+                    except (TypeError, ValueError):
+                        pass
+                    return ""
+
+                display_cols = [c for c in ["수익률(%)", "MDD(%)", "CAGR(%)", "샤프"] if c in wf_df.columns]
+                try:
+                    styled_wf = wf_df.style.map(_color_ret, subset=display_cols)
+                except AttributeError:
+                    styled_wf = wf_df.style.applymap(_color_ret, subset=display_cols)
+                st.dataframe(styled_wf, use_container_width=True, hide_index=True)
+
+                # 판정
+                st.markdown("#### 판정")
+                valid_cnt = len(ps_wf_result.returns)
+                pos_cnt   = sum(1 for r in ps_wf_result.returns if r > 0)
+                if ps_wf_result.win_rate >= 60 and ps_wf_result.avg_return > 0:
+                    st.success(f"✅ **유효한 전략** — {valid_cnt}개 구간 중 {pos_cnt}개 수익 ({ps_wf_result.win_rate:.0f}%), 평균 {ps_wf_result.avg_return:.1f}%")
+                elif ps_wf_result.win_rate >= 50:
+                    st.warning(f"⚠️ **주의 필요** — {valid_cnt}개 구간 중 {pos_cnt}개 수익 ({ps_wf_result.win_rate:.0f}%), 평균 {ps_wf_result.avg_return:.1f}%")
+                else:
+                    st.error(f"❌ **효과 불안정** — {valid_cnt}개 구간 중 {pos_cnt}개만 수익 ({ps_wf_result.win_rate:.0f}%), 평균 {ps_wf_result.avg_return:.1f}%")
+
