@@ -426,6 +426,7 @@ def run_portfolio_sim(
 
     for t, date in enumerate(common_dates):
         day_cash_freed = 0.0   # 당일 청산으로 확보된 현금
+        sold_today     = set() # A단계에서 직접 추적 (당일 청산 전략 인덱스)
 
         # ── A. 포지션 보유 전략: 손절/익절/매도 처리 ──
         for s_idx in range(n_strat):
@@ -486,6 +487,7 @@ def run_portfolio_sim(
                 entry_bars[s_idx]   = -1
                 hold_days[s_idx]    = 0
                 sold = True
+                sold_today.add(s_idx)
 
             # ── 익절 ──────────────────────────────────
             if not sold and p.take_profit_pct > 0:
@@ -515,6 +517,7 @@ def run_portfolio_sim(
                     entry_bars[s_idx]   = -1
                     hold_days[s_idx]    = 0
                     sold = True
+                    sold_today.add(s_idx)
 
             # ── 전략매도 (신호 청산) ───────────────────
             if not sold and sig["sell"][i] and hold_days[s_idx] >= p.min_hold_days:
@@ -542,19 +545,12 @@ def run_portfolio_sim(
                 entry_prices[s_idx] = 0.0
                 entry_bars[s_idx]   = -1
                 hold_days[s_idx]    = 0
+                sold_today.add(s_idx)
 
         # ── B. 매수 신호 처리 ────────────────────────────────
         # 당일 청산된 전략이 먼저 재진입 (A안 우선권)
         # → 그 뒤 나머지 전략을 등록 순서대로 (선착순)
-        sold_today = set()
-        for rec in reversed(trade_log):
-            if rec["날짜"] != date:
-                break
-            if rec["신호"] == "SELL":
-                for s_i, nm in enumerate(names):
-                    if nm == rec["전략"]:
-                        sold_today.add(s_i)
-
+        # sold_today 는 A단계에서 직접 채워짐 (trade_log 파싱 불필요)
         buy_order = sorted(range(n_strat), key=lambda x: (0 if x in sold_today else 1, x))
 
         MIN_CASH = 1_000   # 1,000원 미만은 현금 없음으로 처리
